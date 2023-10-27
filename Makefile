@@ -38,6 +38,9 @@ kernel:
 kernel-clean:
 	$(MAKE) -C$(KERNEL_DIR) -j$(NJOBS) mrproper
 
+kernel-distclean:
+	cd $(KERNEL_DIR); git xlean -xfd
+
 qemu:
 	@./scripts/build-qemu.sh build
 

@@ -344,3 +344,4 @@ uidmap
 curl
 pciutils
 bonnie++
+qemu-system-x86

@@ -8,3 +8,5 @@ export PATH := $(TOOLDIR)/usr/bin:$(TOOLDIR)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(TOOLDIR)/usr/lib:$(TOOLDIR)/usr/local/lib:$(TOOLDIR)/usr/local/lib/x86_64-linux-gnu
 export NJOBS := $(shell exec nproc)
 export PLATFORM ?= X1
+export BUILD_TOOLS := $(TOOLDIR)/usr/bin/qemu-system-x86_64
+export FETCH_SOURCES := $(BASE_DIR)/qemu/VERSION
