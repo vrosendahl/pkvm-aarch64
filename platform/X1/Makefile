@@ -7,8 +7,6 @@ KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
-#DRIVE := -drive id=disk,file=$(IMAGE),if=none -device ahci,id=ahci -device ide-hd,drive=disk,bus=ahci.0
-#DRIVE := -drive file=$(IMAGE),index=0,media=disk,format=qcow2
 USB := -device qemu-xhci -device usb-kbd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 

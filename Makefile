@@ -59,6 +59,9 @@ target-qemu-clean:
 target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
+target-crosvm:
+	@./scripts/build-target-crosvm.sh
+
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER)
 

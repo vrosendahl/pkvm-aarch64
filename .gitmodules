@@ -4,3 +4,6 @@
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/qemu/qemu.git
+[submodule "crosvm"]
+	path = crosvm
+	url = https://chromium.googlesource.com/crosvm/crosvm
