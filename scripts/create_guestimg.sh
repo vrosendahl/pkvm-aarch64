@@ -4,15 +4,18 @@ export PATH=$PATH:/usr/sbin
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
-UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-amd64.tar.gz
+UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
+UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
+QEMU_USER=`which qemu-aarch64-static`
 CPUS=`nproc`
 
 USERNAME=$1
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
+EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuguest.qcow2
-OUTDIR=$BASE_DIR/images/guest
+OUTDIR=$BASE_DIR/guest/images
 SIZE=10G
 
 do_unmount()
@@ -77,6 +80,7 @@ echo "Extracting ubuntu.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
 tar xf `basename $UBUNTU_BASE` -C tmp
+cp $QEMU_USER tmp/usr/bin
 
 echo "Installing packages.."
 mount --bind /dev tmp/dev
@@ -85,6 +89,7 @@ echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
 sudo -E chroot tmp apt-get -y install $PKGLIST
+sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
@@ -103,16 +108,28 @@ EOF
 sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
-echo "Installing kernel modules.."
-cd $BASE_DIR/linux
-make INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$BASE_DIR/scripts/tmp -j$CPUS modules_install
-cd -
+echo "Cloning guest kernel.."
+rm -rf linux
+git clone --single-branch --branch linux-5.15.y git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+cd linux
+#patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
+patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
+patch -p1 < ../../patches/guest/0002-kvm-integrate-kvms-interface-driver-for-5.15-kernel.patch
+patch -p1 < ../../patches/guest/0003-enable-virtio-fs-and-dax-by-default.patch
+
+echo "Building guest kernel.."
+make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install
+cd ..
+echo Done
 
 if [ ! -d $OUTDIR ]; then
+	echo "Creating output dir.."
 	mkdir -p $OUTDIR
 	chown $USERNAME.$USERNAME $OUTDIR
 fi
 
-cp -f $BASE_DIR/linux/arch/x86_64/boot/bzImage $OUTDIR
+cp -f ./linux/arch/arm64/boot/Image $OUTDIR
+chown $USERNAME.$USERNAME $OUTDIR/Image
 mv $OUTFILE $OUTDIR
 echo "Output saved at $OUTDIR"
+sync

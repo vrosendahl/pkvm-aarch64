@@ -4,13 +4,18 @@ export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH:/usr/sbin
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
-UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-amd64.tar.gz
+UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
+UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
+QEMU_USER=$BASE_DIR/oss/ubuntu/usr/bin/qemu-aarch64-static
+QEMU_HOST=$BASE_DIR/oss/ubuntu/usr/bin/qemu-system-aarch64
+QEMU_VIRTIO_ROM=$BASE_DIR/oss/ubuntu/usr/share/qemu/efi-virtio.rom
 CPUS=`nproc`
 
 USERNAME=$1
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22`
+EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuhost.qcow2
 OUTDIR=$BASE_DIR/images/host
 SIZE=20G
@@ -81,12 +86,14 @@ if [ ! -f $QEMU_USER ]; then
 	echo "ERROR: please run 'make target-qemu'"
 	exit 1
 fi
+cp $QEMU_USER tmp/usr/bin
 
 if [ ! -f $QEMU_HOST ]; then
 	echo "ERROR: can't find out $QEMU_HOST"
 	echo "ERROR: please run 'make target-qemu'"
 	exit 1
 fi
+cp $QEMU_HOST tmp/usr/bin
 
 if [ ! -f $QEMU_VIRTIO_ROM ]; then
 	echo "ERROR: can't find out $QEMU_VIRTIO_ROM"
@@ -94,6 +101,7 @@ if [ ! -f $QEMU_VIRTIO_ROM ]; then
 	exit 1
 fi
 mkdir -p tmp/usr/share/qemu
+install --mode=0644 $QEMU_VIRTIO_ROM tmp/usr/share/qemu
 
 echo "Installing packages.."
 mount --bind /dev tmp/dev
@@ -122,7 +130,7 @@ sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
 echo "Installing modules.."
-make -C$CURDIR/../linux INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/tmp -j$CPUS modules_install
+make -C$CURDIR/../oss/linux CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/tmp -j$CPUS modules_install
 
 if [ ! -d $OUTDIR ]; then
 	echo "Creating output dir.."
