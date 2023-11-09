@@ -15,7 +15,7 @@ UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
 EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuguest.qcow2
-OUTDIR=$BASE_DIR/guest/images
+OUTDIR=$BASE_DIR/images/guest
 SIZE=10G
 
 do_unmount()
@@ -108,18 +108,10 @@ EOF
 sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
-echo "Cloning guest kernel.."
-rm -rf linux
-git clone --single-branch --branch linux-5.15.y git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-cd linux
-#patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
-patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
-patch -p1 < ../../patches/guest/0002-kvm-integrate-kvms-interface-driver-for-5.15-kernel.patch
-patch -p1 < ../../patches/guest/0003-enable-virtio-fs-and-dax-by-default.patch
-
-echo "Building guest kernel.."
-make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install
-cd ..
+pwd_dir=$(pwd)
+INST_MOD_PATH="$(pwd)/tmp"
+echo "Installing guest kernel modules.."
+make  -C$CURDIR/linux-guest CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$INST_MOD_PATH modules_install
 echo Done
 
 if [ ! -d $OUTDIR ]; then
