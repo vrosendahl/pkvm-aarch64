@@ -6,7 +6,7 @@ build()
 {
 	mkdir -p build
 	cd build
-	../configure --prefix=$TOOLDIR/usr --target-list=x86_64-softmmu --enable-modules --enable-spice --enable-opengl --enable-virglrenderer --enable-slirp
+	../configure --prefix=$TOOLDIR/usr --target-list=aarch64-softmmu --enable-modules --enable-spice --enable-opengl --enable-virglrenderer --enable-slirp
 	make -j$NJOBS
 	make install
 }

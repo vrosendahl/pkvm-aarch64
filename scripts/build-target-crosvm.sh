@@ -8,5 +8,5 @@ git submodule update --init
 #
 # If you don't have the tools, see './tools/install-deps'
 #
-cargo build --features=gdb
+cargo build --target aarch64-linux-gnu --features=gdb
 cp target/debug/crosvm $BASE_DIR/images/guest

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -x
 
 #
 # Tested on ubuntu 20.n with no other cross tools installed other than
@@ -29,7 +29,6 @@ export LD_LIBRARY_PATH=$TOOLDIR/lib:$TOOLDIR/usr/lib
 export LD_RUN_PATH=$TOOLDIR/lib:$TOOLDIR/usr/lib
 
 MESA_VER=mesa-22.3.2
-KERNEL_PATCHFILE="$BASE_DIR/patches/host/virt/0001-KVM-external-hypervisor-5.15-kernel-baseport.patch"
 TTRIPLET="aarch64-linux-gnu"
 HTRIPLET="x86_64-unknown-linux-gnu"
 NJOBS=`nproc`
@@ -42,7 +41,8 @@ clean()
 	cd $BASE_DIR/oss/gcc; git clean -xfd || true
 	cd $BASE_DIR/oss/glibc; git clean -xfd || true
 	cd $BASE_DIR/oss/qemu; git clean -xfd || true
-	cd $BASE_DIR/oss/linux; git clean -xfd || true
+#	cd $BASE_DIR/linux-host; git clean -xfd || true
+#	cd $BASE_DIR/linux-guest; git clean -xfd || true
 	cd $BASE_DIR/oss; rm -rf $MESA_VER* || true
 }
 
@@ -56,22 +56,21 @@ binutils-gdb()
 	make DESTDIR=$TOOLDIR install
 }
 
-kernel_headers()
+kernel_headers_host()
 {
-	cd $BASE_DIR/oss/linux
-	OUT=$(git apply --check $KERNEL_PATCHFILE 2>&1 | wc -l)
-	if [ $OUT != "0" ]; then
-		echo "Skipping kernel patch, already applied?"
-	else
-		echo "Patching kernel"
-		git am $KERNEL_PATCHFILE
-	fi
+	cd $BASE_DIR/linux-host
 	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$TOOLDIR/usr headers_install
 }
 
-kernel()
+kernel_host()
 {
-	cd $BASE_DIR/oss/linux
+	cd $BASE_DIR/linux-host
+	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$NJOBS defconfig Image modules
+}
+
+kernel_guest()
+{
+	cd $BASE_DIR/linux-guest
 	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$NJOBS defconfig Image modules
 }
 
@@ -130,11 +129,12 @@ if [ "x$1" = "xclean" ]; then
 fi
 
 binutils-gdb
-kernel_headers
+kernel_headers_host
 glibc
 gcc
 if [ -n "$VIRTOOLS" ]; then
 mesa
-qemu
-kernel
+#qemu
+#kernel_host
+#kernel_guest
 fi

@@ -1,6 +1,6 @@
 include core/vars.mk
 
-DIRS := kernel qemu
+DIRS := tools kernel-host kernel-guest qemu
 
 all: $(DIRS)
 
@@ -24,22 +24,31 @@ $(OBJDIR): | $(BUILD_TOOLS)
 	@mkdir -p $(OBJDIR)
 
 gdb:
-	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) gdb
+	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(HOST_KERNEL_DIR) -Cplatform/$(PLATFORM) gdb
 
 run:
-	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) run
+	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(HOST_KERNEL_DIR) -Cplatform/$(PLATFORM) run
 
 poorman:
-	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
+	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(HOST_KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
-kernel:
-	$(MAKE) -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules
+kernel-guest:
+	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) defconfig Image modules
 
-kernel-clean:
-	$(MAKE) -C$(KERNEL_DIR) -j$(NJOBS) mrproper
+kernel-guest-clean:
+	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
 
-kernel-distclean:
-	cd $(KERNEL_DIR); git xlean -xfd
+kernel-guest-distclean:
+	cd $(GUEST_KERNEL_DIR); git xlean -xfd
+
+kernel-host:
+	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) defconfig Image modules
+
+kernel-host-clean:
+	$(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
+
+kernel-host-distclean:
+	cd $(HOST_KERNEL_DIR); git xlean -xfd
 
 qemu:
 	@./scripts/build-qemu.sh build
