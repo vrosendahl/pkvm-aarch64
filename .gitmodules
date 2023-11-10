@@ -19,3 +19,15 @@
 [submodule "oss/qemu"]
 	path = oss/qemu
 	url = https://github.com/qemu/qemu.git
+[submodule "linux-host"]
+	path = linux-host
+	url = https://github.com/tiiuae/linux-pkvm-5.10.git
+[submodule "nvethernetrm"]
+	path = nvethernetrm
+	url = https://github.com/tiiuae/pkvm-nvethernetrm.git
+[submodule "nvgpu"]
+	path = nvgpu
+	url = https://github.com/tiiuae/linux-pkvm-nvgpu.git
+[submodule "nvidia"]
+	path = nvidia
+	url = https://github.com/tiiuae/linux-pkvm-nvidia.git
