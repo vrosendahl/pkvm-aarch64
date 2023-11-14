@@ -1,0 +1,36 @@
+__HYP_BASE = 0xC0000000;
+__HYP_SIZE = 0x10000000;
+__HYP_LIMIT = (__HYP_BASE + __HYP_SIZE);
+
+ENTRY(_start)
+
+MEMORY
+{
+	RAM (rwx): ORIGIN = __HYP_BASE, LENGTH = __HYP_SIZE
+}
+
+SECTIONS
+{
+	. = __HYP_BASE;
+	_stext = .;
+	._reset . : { ../../.objs/reset.o(.text) } > RAM
+	.text : ALIGN(8) {
+		_text = .;
+		*(.text)
+		*(.vectors)
+	} > RAM
+	_etext = .;
+	.rodata : ALIGN(4096) { *(.rodata) } > RAM
+	.data : ALIGN(4096) { *(.data) } > RAM
+	_end = .;
+	.bss : ALIGN(4096) { *(.bss COMMON) } > RAM
+
+	xlat_table (NOLOAD) : ALIGN(16) {
+		__XLAT_START__ = .;
+		*(xlat_table)
+		__XLAT_END__ = .;
+	} > RAM
+	.el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
+	.el1_hyp_data : ALIGN(4096) {*.(.el1_hyp_img) } > RAM
+	. = ALIGN(8);
+}
