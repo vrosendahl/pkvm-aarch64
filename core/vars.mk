@@ -19,6 +19,6 @@ export TOOLDIR := $(BASE_DIR)/buildtools
 export PATH := $(TOOLDIR)/usr/bin:$(TOOLDIR)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(TOOLDIR)/usr/lib:$(TOOLDIR)/usr/local/lib:$(TOOLDIR)/usr/local/lib/aarch64-linux-gnu
 export NJOBS := $(shell exec nproc)
-export PLATFORM ?= X1
+export PLATFORM ?= virt
 export BUILD_TOOLS := $(TOOLDIR)/usr/bin/aarch64-linux-gnu-gcc
 export FETCH_SOURCES := $(BASE_DIR)/qemu/VERSION
