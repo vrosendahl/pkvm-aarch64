@@ -134,7 +134,7 @@ glibc
 gcc
 if [ -n "$VIRTOOLS" ]; then
 mesa
-#qemu
+qemu
 #kernel_host
 #kernel_guest
 fi
