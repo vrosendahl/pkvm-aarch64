@@ -1,20 +1,22 @@
-PROGNAME := hyp
+ROGNAME := hyp
 PROG := $(OBJDIR)/$(PLATFORM)/$(PROGNAME)
 LIBNAME := lib$(PLATFORM).a
 QEMU := qemu-system-aarch64
 
 KERNEL := $(KERNEL_DIR)/arch/arm64/boot/Image
+IMAGE :=  $(KERNEL_DIR)/../images/host/ubuntuhost.qcow2
 VMLINUX := $(KERNEL_DIR)/vmlinux
 KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=8G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
-DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
+#DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
+DRIVE := -drive file=$(IMAGE),if=none,format=qcow2,id=hd0 -device virtio-blk-device,drive=hd0
+BOOTIMG := $(DRIVE)
 USB := -device qemu-xhci -device usb-kbd -device usb-tablet
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 COMP_IMG ?= $(OBJDIR)/$(PLATFORM)/hyp-loader
 USE_COMP_IMG ?= 0
-DTB := $(OBJDIR)/$(PLATFORM)/virt.dtb
-DTC := dtc
+
 
 SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
@@ -42,7 +44,7 @@ endif
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
 	    -machine virt,virtualization=on,secure=off,gic-version=3 \
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 8G $(NETWORK) $(USB) $(BOOTIMG) \
-	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' -dtb $(DTB) $(HYP_IMAGE)
+	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
 ifeq ($(QEMUDEBUG),1)
 QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
@@ -54,37 +56,11 @@ ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
-$(PROG).bin: $(PROG)
-	$(vecho) [OBJCOPY] $@
-	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
-
-$(PROG).hex: $(PROG)
-	$(vecho) [OBJCOPY] $@
-	mkdir -p  $(CORE_DIR)/generated/
-	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
-	cat $(PROG).bin | hexdump -ve '"0x%08X,"' > $(CORE_DIR)/generated/$(PROG).hex
-
-ifdef DEBUG
-$(PROG): build_libs
-	$(vecho) [KALLSYMS] $@
-	$(Q)env LDLIBS="$(LDLIBS)" $(BASE_DIR)/scripts/link-hyp.sh $@ $(PROGNAME)
-
-build_libs: $(COMMON_ARLIBS) $(OBJDIR)/$(LIBNAME) FORCE
-	$(vecho) [TARGET] $@
-else
-$(PROG): $(OBJS) $(OBJDIR)/$(LIBNAME) FORCE
-	$(vecho) [LD] $@
-	$(Q)$(LD) $(LDFLAGS) -o $(PROG) $(LDLIBS) -static
-endif
-
 include $(BASE_DIR)/core/common.mk
 
-all: $(PROG).bin
+all: run
 
-$(DTB):
-	@$(DTC) -I dts -O dtb virt.dts -o $@ > /dev/null 2>&1
-
-run: $(DTB)
+run:
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
 	@echo "Graphics available at 'spice+unix://$(SPICESOCK)'"
@@ -92,6 +68,8 @@ endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
+	@which  $(QEMU)
+	@echo $(QEMUCMD)
 	@$(QEMUCMD)
 
 poorman:
