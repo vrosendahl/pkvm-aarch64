@@ -4,6 +4,7 @@ LIBNAME := lib$(PLATFORM).a
 QEMU := qemu-system-aarch64
 
 KERNEL := $(KERNEL_DIR)/arch/arm64/boot/Image
+#KERNEL := $(HOME)/x0/Image
 IMAGE :=  $(KERNEL_DIR)/../images/host/ubuntuhost.qcow2
 VMLINUX := $(KERNEL_DIR)/vmlinux
 KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=8G nokaslr loglevel=8 rw

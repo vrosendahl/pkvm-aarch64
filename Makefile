@@ -42,7 +42,7 @@ kernel-guest-distclean:
 	cd $(GUEST_KERNEL_DIR); git xlean -xfd
 
 kernel-host:
-	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) defconfig Image modules
+	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) frankenstein_defconfig Image modules
 
 kernel-host-clean:
 	$(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
