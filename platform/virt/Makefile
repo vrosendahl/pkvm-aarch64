@@ -47,6 +47,10 @@ QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUG
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 8G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
+ifeq ($(DEBUGGER),1)
+QEMUOPTS := $(QEMUOPTS) -S -s
+endif
+
 ifeq ($(QEMUDEBUG),1)
 QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
 else
@@ -85,12 +89,10 @@ ifeq ($(USE_COMP_IMG),1)
 	# -ex "add-symbol-file $(COMP_IMG) 0xC0081000"
 	#
 	@$(CROSS_COMPILE)gdb -ex "target remote localhost:1234" -ex "set confirm off"   \
-		-ex "add-symbol-file $(PROG) 0xC0001000" \
-		-ex "set {int}0x40000010 = 0xd2b80104" \
 		$(VMLINUX)
 else
 	@$(CROSS_COMPILE)gdb -ex "target remote localhost:1234" -ex "set confirm off"	\
-		-ex "add-symbol-file $(PROG) 0xC0001000" $(VMLINUX)
+		$(VMLINUX)
 endif
 
 FORCE:
