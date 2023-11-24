@@ -82,18 +82,8 @@ poorman:
 		$(BASE_DIR)/scripts/poorman.sh
 
 gdb:
-ifeq ($(USE_COMP_IMG),1)
-	#
-	# QEMU loader trampoline gets set directly to the hyp-loader entrypoint. If
-	# you need to debug the loader, do:
-	# -ex "add-symbol-file $(COMP_IMG) 0xC0081000"
-	#
 	@$(CROSS_COMPILE)gdb -ex "target remote localhost:1234" -ex "set confirm off"   \
 		$(VMLINUX)
-else
-	@$(CROSS_COMPILE)gdb -ex "target remote localhost:1234" -ex "set confirm off"	\
-		$(VMLINUX)
-endif
 
 FORCE:
 	
