@@ -1,6 +1,6 @@
 include core/vars.mk
 
-DIRS := tools kernel-host kernel-guest qemu
+DIRS := tools host-kernel target-qemu hostimage
 
 all: $(DIRS)
 
