@@ -23,3 +23,5 @@ What is missing:
 * The guestimage target does not work properly.
 
 * There guest-kernel target doest not work properly.
+
+* There are no target for building anything for the Nvidia hardware target.
