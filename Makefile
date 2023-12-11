@@ -4,7 +4,7 @@ DIRS := tools host-kernel target-qemu hostimage
 
 all: $(DIRS)
 
-clean: qemu-clean kernel-clean
+clean: tools-clean host-kernel-clean target-qemu-clean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
