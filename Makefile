@@ -74,7 +74,7 @@ target-crosvm:
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER)
 
-hostimage: $(BUILD_TOOLS)
+hostimage:
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
 .PHONY: all clean target-qemu run $(BUILD_TOOLS) $(DIRS)
