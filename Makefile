@@ -32,22 +32,22 @@ run:
 poorman:
 	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(HOST_KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
-kernel-guest:
+guest-kernel:
 	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) defconfig Image modules
 
-kernel-guest-clean:
+guest-kernel-clean:
 	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
 
-kernel-guest-distclean:
+guest-kernel-distclean:
 	cd $(GUEST_KERNEL_DIR); git xlean -xfd
 
-kernel-host:
+host-kernel:
 	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) frankenstein_defconfig Image modules
 
-kernel-host-clean:
+host-kernel-clean:
 	$(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
 
-kernel-host-distclean:
+host-kernel-distclean:
 	cd $(HOST_KERNEL_DIR); git xlean -xfd
 
 qemu:
