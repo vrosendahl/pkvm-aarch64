@@ -9,6 +9,7 @@ UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base
 QEMU_USER=$BASE_DIR/oss/ubuntu/usr/bin/qemu-aarch64-static
 QEMU_HOST=$BASE_DIR/oss/ubuntu/usr/bin/qemu-system-aarch64
 QEMU_VIRTIO_ROM=$BASE_DIR/oss/ubuntu/usr/share/qemu/efi-virtio.rom
+CROSVM=$BASE_DIR/oss/ubuntu/usr/bin/crosvm
 CPUS=`nproc`
 
 USERNAME=$1
@@ -81,27 +82,31 @@ echo "Extracting ubuntu.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
 tar xf `basename $UBUNTU_BASE` -C tmp
-if [ ! -f $QEMU_USER ]; then
-	echo "ERROR: can't find out $QEMU_USER"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
-fi
-cp $QEMU_USER tmp/usr/bin
 
-if [ ! -f $QEMU_HOST ]; then
-	echo "ERROR: can't find out $QEMU_HOST"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
+if [ ! -f $QEMU_USER ] || [ ! -f $QEMU_HOST ] || [ ! -f $QEMU_VIRTIO_ROM ];then
+	if [ ! -f $CROSVM ];then
+		echo "ERROR: can't find a VMM"
+		echo "ERROR: please run 'make target-qemu' or 'make target-crosvm"
+		exit 1
+	fi
 fi
-cp $QEMU_HOST tmp/usr/bin
 
-if [ ! -f $QEMU_VIRTIO_ROM ]; then
-	echo "ERROR: can't find out $QEMU_VIRTIO_ROM"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
+if [ -f $QEMU_USER ]; then
+	cp $QEMU_USER tmp/usr/bin
 fi
-mkdir -p tmp/usr/share/qemu
-install --mode=0644 $QEMU_VIRTIO_ROM tmp/usr/share/qemu
+
+if [ -f $QEMU_HOST ]; then
+	cp $QEMU_HOST tmp/usr/bin
+fi
+
+if [ -f $QEMU_VIRTIO_ROM ]; then
+	mkdir -p tmp/usr/share/qemu
+	install --mode=0644 $QEMU_VIRTIO_ROM tmp/usr/share/qemu
+fi
+
+if [ -f $CROSVM ]; then
+	cp $CROSVM tmp/usr/bin
+fi
 
 echo "Installing packages.."
 mount --bind /dev tmp/dev
