@@ -1,10 +1,10 @@
 include core/vars.mk
 
-DIRS := tools host-kernel target-qemu hostimage
+DIRS := tools host-kernel target-crosvm hostimage
 
 all: $(DIRS)
 
-clean: host-kernel-clean target-qemu-clean tools-clean
+clean: host-kernel-clean target-crosvm-clean tools-clean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
@@ -70,6 +70,12 @@ target-qemu-distclean:
 
 target-crosvm:
 	@./scripts/build-target-crosvm.sh
+
+target-crosvm-clean:
+	@./scripts/build-target-crosvm.sh clean
+
+target-crosvm-distclean:
+	@./scripts/build-target-crosvm.sh distclean
 
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER)
