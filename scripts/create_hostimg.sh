@@ -114,6 +114,7 @@ mount -t proc none tmp/proc
 echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
+sudo -E chroot tmp apt-get -y dist-upgrade
 sudo -E chroot tmp apt-get -y install $PKGLIST
 sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy

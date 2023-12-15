@@ -34,8 +34,13 @@ unset DEFINES
 export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
 export CHROOTDIR=$BASE_DIR/oss/ubuntu
 
+NJOBS_MAX=8
 NJOBS=`nproc`
 REPO=`which repo`
+
+if [ $NJOBS -gt $NJOBS_MAX ];then
+	NJOBS=$NJOBS_MAX
+fi
 
 set -e
 
@@ -91,6 +96,7 @@ do_sysroot()
 	cp $QEMU_USER usr/bin
 	sudo chmod a+rwx tmp
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get update
+	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y dist-upgrade
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y install $PKGLIST
 #	sudo -E chroot $CHROOTDIR update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10
 #	sudo -E chroot $CHROOTDIR update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10
@@ -106,7 +112,7 @@ do_crosvm()
 	sudo mount --bind $BASE_DIR/crosvm $CHROOTDIR/build/crosvm
 	cd $CHROOTDIR/build/crosvm
 
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/crosvm; cargo build --features=gdb; install target/debug/crosvm /usr/bin"
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/crosvm; cargo build --verbose -j $NJOBS --features=gdb; install target/debug/crosvm /usr/bin"
 }
 
 
