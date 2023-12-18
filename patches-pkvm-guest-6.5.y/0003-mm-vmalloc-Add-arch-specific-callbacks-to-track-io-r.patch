@@ -1,0 +1,99 @@
+From 3c31d7d70dfb5e5a64d2c5d4e7ee5770a70ca173 Mon Sep 17 00:00:00 2001
+From: Marc Zyngier <maz@kernel.org>
+Date: Wed, 30 Jun 2021 13:24:32 +0100
+Subject: [PATCH 3/4] mm/vmalloc: Add arch-specific callbacks to track
+ io{remap,unmap} physical pages
+
+Add a pair of hooks (ioremap_phys_range_hook/iounmap_phys_range_hook)
+that can be implemented by an architecture. Contrary to the existing
+arch_sync_kernel_mappings(), this one tracks things at the physical
+address level.
+
+This is specially useful in these virtualised environments where
+the guest has to tell the host whether (and how) it intends to use
+a MMIO device.
+
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+---
+ include/linux/io.h |  2 ++
+ mm/Kconfig         |  8 ++++++++
+ mm/vmalloc.c       | 12 +++++++++++-
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/io.h b/include/linux/io.h
+index 7304f2a69960..1a9e941d2825 100644
+--- a/include/linux/io.h
++++ b/include/linux/io.h
+@@ -21,6 +21,8 @@ void __ioread32_copy(void *to, const void __iomem *from, size_t count);
+ void __iowrite64_copy(void __iomem *to, const void *from, size_t count);
+ 
+ #ifdef CONFIG_MMU
++void ioremap_phys_range_hook(phys_addr_t phys_addr, size_t size, pgprot_t prot);
++void iounmap_phys_range_hook(phys_addr_t phys_addr, size_t size);
+ int ioremap_page_range(unsigned long addr, unsigned long end,
+ 		       phys_addr_t phys_addr, pgprot_t prot);
+ #else
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 09130434e30d..ea394f630c0b 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -1144,6 +1144,14 @@ config KMAP_LOCAL_NON_LINEAR_PTE_ARRAY
+ config IO_MAPPING
+ 	bool
+ 
++# Some architectures want callbacks for all IO mappings in order to
++# track the physical addresses that get used as devices.
++config ARCH_HAS_IOREMAP_PHYS_HOOKS
++	bool
++
++config MEMFD_CREATE
++	bool "Enable memfd_create() system call" if EXPERT
++
+ config SECRETMEM
+ 	default y
+ 	bool "Enable memfd_secret() system call" if EXPERT
+diff --git a/mm/vmalloc.c b/mm/vmalloc.c
+index ef8599d394fd..1e6749df80fa 100644
+--- a/mm/vmalloc.c
++++ b/mm/vmalloc.c
+@@ -39,6 +39,7 @@
+ #include <linux/overflow.h>
+ #include <linux/pgtable.h>
+ #include <linux/hugetlb.h>
++#include <linux/io.h>
+ #include <linux/sched/mm.h>
+ #include <asm/tlbflush.h>
+ #include <asm/shmparam.h>
+@@ -309,12 +310,17 @@ int ioremap_page_range(unsigned long addr, unsigned long end,
+ {
+ 	int err;
+ 
+-	err = vmap_range_noflush(addr, end, phys_addr, pgprot_nx(prot),
++	prot = pgprot_nx(prot);
++	err = vmap_range_noflush(addr, end, phys_addr, prot,
+ 				 ioremap_max_page_shift);
+ 	flush_cache_vmap(addr, end);
+ 	if (!err)
+ 		err = kmsan_ioremap_page_range(addr, end, phys_addr, prot,
+ 					       ioremap_max_page_shift);
++
++	if (IS_ENABLED(CONFIG_ARCH_HAS_IOREMAP_PHYS_HOOKS) && !err)
++		ioremap_phys_range_hook(phys_addr, end - addr, prot);
++
+ 	return err;
+ }
+ 
+@@ -2702,6 +2708,10 @@ struct vm_struct *remove_vm_area(const void *addr)
+ 	kasan_free_module_shadow(vm);
+ 	kasan_poison_vmalloc(vm->addr, get_vm_area_size(vm));
+ 
++	if (IS_ENABLED(CONFIG_ARCH_HAS_IOREMAP_PHYS_HOOKS) &&
++	    vm->flags & VM_IOREMAP)
++		iounmap_phys_range_hook(vm->phys_addr, get_vm_area_size(vm));
++
+ 	free_unmap_vmap_area(va);
+ 	return vm;
+ }
+-- 
+2.34.1
+

@@ -1,0 +1,64 @@
+From 1c05d06731c40c584d2ab071a33960896e37a4e1 Mon Sep 17 00:00:00 2001
+From: Marc Zyngier <maz@kernel.org>
+Date: Mon, 4 Oct 2021 18:48:44 +0100
+Subject: [PATCH 1/4] firmware/smccc: Call arch-specific hook on discovering
+ KVM services
+
+arm64 will soon require its own callback to initialise services
+that are only availably on this architecture. Introduce a hook
+that can be overloaded by the architecture.
+
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+---
+ arch/arm/include/asm/hypervisor.h   | 1 +
+ arch/arm64/include/asm/hypervisor.h | 1 +
+ drivers/firmware/smccc/kvm_guest.c  | 4 ++++
+ 3 files changed, 6 insertions(+)
+
+diff --git a/arch/arm/include/asm/hypervisor.h b/arch/arm/include/asm/hypervisor.h
+index bd61502b9715..8133c8c81a35 100644
+--- a/arch/arm/include/asm/hypervisor.h
++++ b/arch/arm/include/asm/hypervisor.h
+@@ -6,5 +6,6 @@
+ 
+ void kvm_init_hyp_services(void);
+ bool kvm_arm_hyp_service_available(u32 func_id);
++void kvm_arm_init_hyp_services(void);
+ 
+ #endif
+diff --git a/arch/arm64/include/asm/hypervisor.h b/arch/arm64/include/asm/hypervisor.h
+index 0ae427f352c8..8e77f411903f 100644
+--- a/arch/arm64/include/asm/hypervisor.h
++++ b/arch/arm64/include/asm/hypervisor.h
+@@ -6,5 +6,6 @@
+ 
+ void kvm_init_hyp_services(void);
+ bool kvm_arm_hyp_service_available(u32 func_id);
++void kvm_arm_init_hyp_services(void);
+ 
+ #endif
+diff --git a/drivers/firmware/smccc/kvm_guest.c b/drivers/firmware/smccc/kvm_guest.c
+index 89a68e7eeaa6..e2c9528b7b85 100644
+--- a/drivers/firmware/smccc/kvm_guest.c
++++ b/drivers/firmware/smccc/kvm_guest.c
+@@ -10,6 +10,8 @@
+ 
+ #include <asm/hypervisor.h>
+ 
++void __weak kvm_arm_init_hyp_services(void) {}
++
+ static DECLARE_BITMAP(__kvm_arm_hyp_services, ARM_SMCCC_KVM_NUM_FUNCS) __ro_after_init = { };
+ 
+ void __init kvm_init_hyp_services(void)
+@@ -39,6 +41,8 @@ void __init kvm_init_hyp_services(void)
+ 
+ 	pr_info("hypervisor services detected (0x%08lx 0x%08lx 0x%08lx 0x%08lx)\n",
+ 		 res.a3, res.a2, res.a1, res.a0);
++
++	kvm_arm_init_hyp_services();
+ }
+ 
+ bool kvm_arm_hyp_service_available(u32 func_id)
+-- 
+2.34.1
+

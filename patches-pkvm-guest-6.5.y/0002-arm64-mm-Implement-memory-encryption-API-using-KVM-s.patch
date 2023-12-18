@@ -1,0 +1,250 @@
+From 387e80cf5df78793cfb340ff5a61d9a0962921fc Mon Sep 17 00:00:00 2001
+From: Will Deacon <willdeacon@google.com>
+Date: Thu, 5 Aug 2021 14:23:07 +0100
+Subject: [PATCH 2/4] arm64: mm: Implement memory encryption API using KVM
+ sharing hypercalls
+
+When running as a protected guest, the KVM host does not have access to
+any pages mapped into the guest. Consequently, KVM exposes hypercalls to
+the guest so that pages can be shared back with the host for the purposes
+of shared memory communication such as virtio.
+
+Detect the presence of these hypercalls when running as a guest and use
+them to implement the memory encryption interfaces gated by
+CONFIG_ARCH_HAS_MEM_ENCRYPT which are called from the DMA layer to share
+SWIOTLB bounce buffers for virtio.
+
+Although no encryption is actually performed, "sharing" a page is akin
+to decryption, whereas "unsharing" a page maps to encryption, albeit
+without destruction of the underlying page contents.
+
+Signed-off-by: Will Deacon <will@kernel.org>
+---
+ arch/arm64/Kconfig                   |   2 +-
+ arch/arm64/include/asm/hypervisor.h  |   1 +
+ arch/arm64/include/asm/mem_encrypt.h |   9 ++
+ arch/arm64/kernel/setup.c            |   6 ++
+ arch/arm64/mm/Makefile               |   2 +-
+ arch/arm64/mm/mem_encrypt.c          | 132 +++++++++++++++++++++++++++
+ 6 files changed, 150 insertions(+), 2 deletions(-)
+ create mode 100644 arch/arm64/include/asm/mem_encrypt.h
+ create mode 100644 arch/arm64/mm/mem_encrypt.c
+
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index 73085b30b309..c52cc19bea11 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -33,6 +33,7 @@ config ARM64
+ 	select ARCH_HAS_KEEPINITRD
+ 	select ARCH_HAS_MEMBARRIER_SYNC_CORE
+ 	select ARCH_HAS_NMI_SAFE_THIS_CPU_OPS
++	select ARCH_HAS_MEM_ENCRYPT
+ 	select ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
+ 	select ARCH_HAS_PTE_DEVMAP
+ 	select ARCH_HAS_PTE_SPECIAL
+@@ -2346,4 +2347,3 @@ endmenu # "CPU Power Management"
+ source "drivers/acpi/Kconfig"
+ 
+ source "arch/arm64/kvm/Kconfig"
+-
+diff --git a/arch/arm64/include/asm/hypervisor.h b/arch/arm64/include/asm/hypervisor.h
+index 8e77f411903f..ef8e55e6f2f2 100644
+--- a/arch/arm64/include/asm/hypervisor.h
++++ b/arch/arm64/include/asm/hypervisor.h
+@@ -7,5 +7,6 @@
+ void kvm_init_hyp_services(void);
+ bool kvm_arm_hyp_service_available(u32 func_id);
+ void kvm_arm_init_hyp_services(void);
++void kvm_init_memshare_services(void);
+ 
+ #endif
+diff --git a/arch/arm64/include/asm/mem_encrypt.h b/arch/arm64/include/asm/mem_encrypt.h
+new file mode 100644
+index 000000000000..300c8b8cbebe
+--- /dev/null
++++ b/arch/arm64/include/asm/mem_encrypt.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __ASM_MEM_ENCRYPT_H
++#define __ASM_MEM_ENCRYPT_H
++
++bool mem_encrypt_active(void);
++int set_memory_encrypted(unsigned long addr, int numpages);
++int set_memory_decrypted(unsigned long addr, int numpages);
++
++#endif	/* __ASM_MEM_ENCRYPT_H */
+diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
+index 417a8a86b2db..c1997c05c421 100644
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -41,6 +41,7 @@
+ #include <asm/elf.h>
+ #include <asm/cpufeature.h>
+ #include <asm/cpu_ops.h>
++#include <asm/hypervisor.h>
+ #include <asm/kasan.h>
+ #include <asm/numa.h>
+ #include <asm/scs.h>
+@@ -457,3 +458,8 @@ static int __init check_mmu_enabled_at_boot(void)
+ 	return 0;
+ }
+ device_initcall_sync(check_mmu_enabled_at_boot);
++
++void kvm_arm_init_hyp_services(void)
++{
++	kvm_init_memshare_services();
++}
+diff --git a/arch/arm64/mm/Makefile b/arch/arm64/mm/Makefile
+index dbd1bc95967d..c35d740fa800 100644
+--- a/arch/arm64/mm/Makefile
++++ b/arch/arm64/mm/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-y				:= dma-mapping.o extable.o fault.o init.o \
+ 				   cache.o copypage.o flush.o \
+-				   ioremap.o mmap.o pgd.o mmu.o \
++				   ioremap.o mem_encrypt.o mmap.o pgd.o mmu.o \
+ 				   context.o proc.o pageattr.o fixmap.o
+ obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
+ obj-$(CONFIG_PTDUMP_CORE)	+= ptdump.o
+diff --git a/arch/arm64/mm/mem_encrypt.c b/arch/arm64/mm/mem_encrypt.c
+new file mode 100644
+index 000000000000..849b0e628e02
+--- /dev/null
++++ b/arch/arm64/mm/mem_encrypt.c
+@@ -0,0 +1,132 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Implementation of the memory encryption/decryption API.
++ *
++ * Amusingly, no crypto is actually performed. Rather, we call into the
++ * hypervisor component of KVM to expose pages selectively to the host
++ * for virtio "DMA" operations. In other words, "encrypted" pages are
++ * not accessible to the host, whereas "decrypted" pages are.
++ *
++ * Author: Will Deacon <will@kernel.org>
++ */
++#include <linux/arm-smccc.h>
++#include <linux/mem_encrypt.h>
++#include <linux/memory.h>
++#include <linux/mm.h>
++#include <linux/set_memory.h>
++#include <linux/types.h>
++
++#include <asm/hypervisor.h>
++
++#ifndef ARM_SMCCC_KVM_FUNC_HYP_MEMINFO
++#define ARM_SMCCC_KVM_FUNC_HYP_MEMINFO	2
++
++#define ARM_SMCCC_VENDOR_HYP_KVM_HYP_MEMINFO_FUNC_ID			\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL,				\
++			   ARM_SMCCC_SMC_64,				\
++			   ARM_SMCCC_OWNER_VENDOR_HYP,			\
++			   ARM_SMCCC_KVM_FUNC_HYP_MEMINFO)
++#endif	/* ARM_SMCCC_KVM_FUNC_HYP_MEMINFO */
++
++#ifndef ARM_SMCCC_KVM_FUNC_MEM_SHARE
++#define ARM_SMCCC_KVM_FUNC_MEM_SHARE	3
++
++#define ARM_SMCCC_VENDOR_HYP_KVM_MEM_SHARE_FUNC_ID			\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL,				\
++			   ARM_SMCCC_SMC_64,				\
++			   ARM_SMCCC_OWNER_VENDOR_HYP,			\
++			   ARM_SMCCC_KVM_FUNC_MEM_SHARE)
++#endif	/* ARM_SMCCC_KVM_FUNC_MEM_SHARE */
++
++#ifndef ARM_SMCCC_KVM_FUNC_MEM_UNSHARE
++#define ARM_SMCCC_KVM_FUNC_MEM_UNSHARE	4
++
++#define ARM_SMCCC_VENDOR_HYP_KVM_MEM_UNSHARE_FUNC_ID			\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL,				\
++			   ARM_SMCCC_SMC_64,				\
++			   ARM_SMCCC_OWNER_VENDOR_HYP,			\
++			   ARM_SMCCC_KVM_FUNC_MEM_UNSHARE)
++#endif	/* ARM_SMCCC_KVM_FUNC_MEM_UNSHARE */
++
++static unsigned long memshare_granule_sz;
++
++bool mem_encrypt_active(void)
++{
++	return memshare_granule_sz;
++}
++EXPORT_SYMBOL(mem_encrypt_active);
++
++void kvm_init_memshare_services(void)
++{
++	int i;
++	struct arm_smccc_res res;
++	const u32 funcs[] = {
++		ARM_SMCCC_KVM_FUNC_HYP_MEMINFO,
++		ARM_SMCCC_KVM_FUNC_MEM_SHARE,
++		ARM_SMCCC_KVM_FUNC_MEM_UNSHARE,
++	};
++
++	for (i = 0; i < ARRAY_SIZE(funcs); ++i) {
++		if (!kvm_arm_hyp_service_available(funcs[i]))
++			return;
++	}
++
++	arm_smccc_1_1_invoke(ARM_SMCCC_VENDOR_HYP_KVM_HYP_MEMINFO_FUNC_ID,
++			     0, 0, 0, &res);
++	if (res.a0 > PAGE_SIZE) /* Includes error codes */
++		return;
++
++	memshare_granule_sz = res.a0;
++}
++
++static int arm_smccc_share_unshare_page(u32 func_id, phys_addr_t phys)
++{
++	phys_addr_t end = phys + PAGE_SIZE;
++
++	while (phys < end) {
++		struct arm_smccc_res res;
++
++		arm_smccc_1_1_invoke(func_id, phys, 0, 0, &res);
++		if (res.a0 != SMCCC_RET_SUCCESS)
++			return -EPERM;
++
++		phys += memshare_granule_sz;
++	}
++
++	return 0;
++}
++
++static int set_memory_xcrypted(u32 func_id, unsigned long start, int numpages)
++{
++	void *addr = (void *)start, *end = addr + numpages * PAGE_SIZE;
++
++	while (addr < end) {
++		int err;
++
++		err = arm_smccc_share_unshare_page(func_id, virt_to_phys(addr));
++		if (err)
++			return err;
++
++		addr += PAGE_SIZE;
++	}
++
++	return 0;
++}
++
++int set_memory_encrypted(unsigned long addr, int numpages)
++{
++	if (!memshare_granule_sz || WARN_ON(!PAGE_ALIGNED(addr)))
++		return 0;
++
++	return set_memory_xcrypted(ARM_SMCCC_VENDOR_HYP_KVM_MEM_UNSHARE_FUNC_ID,
++				   addr, numpages);
++}
++
++int set_memory_decrypted(unsigned long addr, int numpages)
++{
++	if (!memshare_granule_sz || WARN_ON(!PAGE_ALIGNED(addr)))
++		return 0;
++
++	return set_memory_xcrypted(ARM_SMCCC_VENDOR_HYP_KVM_MEM_SHARE_FUNC_ID,
++				   addr, numpages);
++}
+-- 
+2.34.1
+
