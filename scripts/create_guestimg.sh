@@ -111,7 +111,7 @@ sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_c
 pwd_dir=$(pwd)
 INST_MOD_PATH="$(pwd)/tmp"
 echo "Installing guest kernel modules.."
-make  -C$CURDIR/linux-guest CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$INST_MOD_PATH modules_install
+make  -C$GUEST_KERNEL_DIR CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$INST_MOD_PATH modules_install
 echo Done
 
 if [ ! -d $OUTDIR ]; then
@@ -120,7 +120,7 @@ if [ ! -d $OUTDIR ]; then
 	chown $USERNAME.$USERNAME $OUTDIR
 fi
 
-cp -f ./linux/arch/arm64/boot/Image $OUTDIR
+cp -f $GUEST_KERNEL_DIR/arch/arm64/boot/Image $OUTDIR
 chown $USERNAME.$USERNAME $OUTDIR/Image
 mv $OUTFILE $OUTDIR
 echo "Output saved at $OUTDIR"
