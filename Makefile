@@ -1,10 +1,10 @@
 include core/vars.mk
 
-DIRS := tools host-kernel target-crosvm hostimage
+DIRS := tools host-kernel target-crosvm hostimage guest-kernel guestimage
 
 all: $(DIRS)
 
-clean: host-kernel-clean target-crosvm-clean tools-clean
+clean: host-kernel-clean guest-kernel-clean target-crosvm-clean tools-clean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
