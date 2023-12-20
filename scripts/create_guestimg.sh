@@ -90,19 +90,25 @@ export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
 sudo -E chroot tmp apt-get -y install $PKGLIST
 sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
+sudo -E chroot tmp apt-get -y purge network-manager network-manager-gnome network-manager-pptp
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
 
+# The first resolv.conf may have been deleted by the operations above let's make
+# sure that it's there and not some symbolic link
+rm -f tmp/etc/resolv.conf
+echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
+
 cat >>  tmp/etc/network/interfaces << EOF
 auto lo
 iface lo inet loopback
 
-auto enp0s6
-iface enp0s6 inet static
-address 192.168.8.3
-gateway 192.168.8.1
+auto enp0s2
+iface enp0s2 inet static
+address 192.168.10.3
+gateway 192.168.10.1
 EOF
 
 sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
