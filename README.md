@@ -20,9 +20,9 @@ What currently works, execute the following make targets in order:
 
 The `make host-kernel` and `make target-crosvm` targets can be executed in any order, there is no dependency between them. Also `make guestkernel` only needs depend on `make tools`, while `make guestimage` depends on `make guestkernel`
 
-The default user is `ubuntu`. No password required. The hostimage has a script, `run-crosvm.sh`, which can be used to run the guestimage with crosvm, also doing the necessary configuration of networking.
+The default user is `ubuntu`. No password is required. The hostimage has a script, `run-crosvm.sh`, which can be used to run the guestimage with crosvm, also doing the necessary configuration of networking.
 
-There is also a `make all` target that will bild everything in the right order.
+There is also a `make all` target that will build everything in the right order.
 
 What is missing:
 
