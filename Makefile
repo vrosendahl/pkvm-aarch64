@@ -48,6 +48,9 @@ host-kernel:
 
 host-kernel-clean:
 	$(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
+	@rm -f $(HOST_KERNEL_DIR)/arch/arm64/kvm/hyp/nvhe/gen-hyprel
+	@rm -f $(HOST_KERNEL_DIR)/arch/arm64/kvm/hyp/nvhe/hyp-reloc.S
+	@rm -rf $(HOST_KERNEL_DIR)/drivers/video/tegra
 
 host-kernel-distclean:
 	cd $(HOST_KERNEL_DIR); git xlean -xfd
