@@ -105,8 +105,8 @@ cat >>  tmp/etc/network/interfaces << EOF
 auto lo
 iface lo inet loopback
 
-auto enp0s6
-iface enp0s6 inet static
+auto enp0s2
+iface enp0s2 inet static
 address 192.168.10.3
 gateway 192.168.10.1
 EOF
