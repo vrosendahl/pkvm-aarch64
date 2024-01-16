@@ -9,7 +9,7 @@
 	url = https://chromium.googlesource.com/crosvm/crosvm
 [submodule "oss/binutils-gdb"]
 	path = oss/binutils-gdb
-	url = git://sourceware.org/git/binutils-gdb.git
+	url = https://github.com/vrosendahl/binutils-gdb.git
 [submodule "oss/gcc"]
 	path = oss/gcc
 	url = https://github.com/gcc-mirror/gcc.git
