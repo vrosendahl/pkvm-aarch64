@@ -55,7 +55,7 @@ ip link set crosvm_tap up
 sysctl net.ipv4.ip_forward=1
 
 # Network interface used to connect to the internet.
-HOST_DEV=$(ip route get 8.8.8.8 | awk -- '{printf $5}')
+HOST_DEV=$(ip route get 8.8.8.8 | awk '$1=="8.8.8.8" {printf $5}')
 iptables -t nat -A POSTROUTING -o "${HOST_DEV}" -j MASQUERADE
 iptables -A FORWARD -i "${HOST_DEV}" -o crosvm_tap -m state --state RELATED,ESTABLISHED -j ACCEPT
 iptables -A FORWARD -i crosvm_tap -o "${HOST_DEV}" -j ACCEPT

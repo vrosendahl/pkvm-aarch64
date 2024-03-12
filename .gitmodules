@@ -9,7 +9,7 @@
 	url = https://chromium.googlesource.com/crosvm/crosvm
 [submodule "oss/binutils-gdb"]
 	path = oss/binutils-gdb
-	url = https://github.com/vrosendahl/binutils-gdb.git
+	url = git://sourceware.org/git/binutils-gdb.git
 [submodule "oss/gcc"]
 	path = oss/gcc
 	url = https://github.com/gcc-mirror/gcc.git
@@ -22,12 +22,3 @@
 [submodule "linux-host"]
 	path = linux-host
 	url = https://github.com/tiiuae/linux-pkvm-5.10.git
-[submodule "nvethernetrm"]
-	path = nvethernetrm
-	url = https://github.com/tiiuae/pkvm-nvethernetrm.git
-[submodule "nvgpu"]
-	path = nvgpu
-	url = https://github.com/tiiuae/linux-pkvm-nvgpu.git
-[submodule "nvidia"]
-	path = nvidia
-	url = https://github.com/tiiuae/linux-pkvm-nvidia.git
