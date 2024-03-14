@@ -50,8 +50,11 @@ binutils-gdb()
 {
 	mkdir -p $BASE_DIR/oss/binutils-gdb/build
 	cd $BASE_DIR/oss/binutils-gdb/build
+	# Disable gprofng since it doesn't build correctly for aarch64. It is
+	# probably not difficult to fix but not spending time on it now because
+	# gprofng is an obscure tool in this project
 	 ../configure --prefix=/usr --target=$TTRIPLET --host=$HTRIPLET --build=$HTRIPLET \
-		      --disable-nls --disable-multilib --with-sysroot=$TOOLDIR
+		      --disable-nls --disable-multilib --disable-gprofng --with-sysroot=$TOOLDIR
 	make -j$NJOBS
 	make DESTDIR=$TOOLDIR install
 }
