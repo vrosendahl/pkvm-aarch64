@@ -114,6 +114,12 @@ EOF
 sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
+# Because the guest will run so slowly with emulation and nested
+# virtualization, we will increase this timeout, so that systemd will wait
+# longer for devices. This is especially important for ttyS0, which is used
+# as a console and its timeout would cause getty to fail.
+echo 'DefaultTimeoutStartSec=600s' >> tmp/etc/systemd/system.conf
+
 pwd_dir=$(pwd)
 INST_MOD_PATH="$(pwd)/tmp"
 echo "Installing guest kernel modules.."
