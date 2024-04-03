@@ -120,6 +120,18 @@ sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_c
 # as a console and its timeout would cause getty to fail.
 echo 'DefaultTimeoutStartSec=600s' >> tmp/etc/systemd/system.conf
 
+# For the same reason, we need to increase the timeout of "udevadm settle" to
+# 300 seconds
+mkdir tmp/etc/systemd/system/ifupdown-pre.service.d
+cat >>  tmp/etc/systemd/system/ifupdown-pre.service.d/override.conf << EOF
+[Service]
+ExecStart=
+# This ExecStart line is copied from /lib/systemd/system/ifupdown-pre.service,
+# only added the --timeout 300
+ExecStart=/bin/sh -c 'if [ "$CONFIGURE_INTERFACES" != "no" ] && [ -n "$(ifquery --read-environment --list --exclude=lo)" ] && [ -x /bin/udevadm ]; then udevadm settle --timeout 300; fi'
+TimeoutStartSec=400
+EOF
+
 pwd_dir=$(pwd)
 INST_MOD_PATH="$(pwd)/tmp"
 echo "Installing guest kernel modules.."
