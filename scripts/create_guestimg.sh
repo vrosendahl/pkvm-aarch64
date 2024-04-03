@@ -96,11 +96,6 @@ sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
 
-# The first resolv.conf may have been deleted by the operations above let's make
-# sure that it's there and not some symbolic link
-rm -f tmp/etc/resolv.conf
-echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
-
 cat >>  tmp/etc/network/interfaces << EOF
 auto lo
 iface lo inet loopback
@@ -110,6 +105,21 @@ iface enp0s2 inet static
 address 192.168.10.3
 gateway 192.168.10.1
 EOF
+
+cat >>  tmp/etc/hosts << EOF
+127.0.0.1	localhost
+127.0.1.1	pkvm-guest
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+EOF
+
+echo pkvm-guest > tmp/etc/hostname
 
 sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
