@@ -1,0 +1,1900 @@
+From efad58d3e2f9aa246d8510dda83f29c674416229 Mon Sep 17 00:00:00 2001
+From: Martti Takala <martti.takala@unikie.com>
+Date: Fri, 15 Mar 2024 16:56:33 +0200
+Subject: [PATCH] Improved debug printings on EL2 for 5.15
+
+You can use hyp_print() function to print debug printings to
+the console
+
+Signed-off-by: Martti Takala <martti.takala@unikie.com>
+---
+ arch/arm64/configs/qemu_defconfig            |   4 +
+ arch/arm64/kernel/image-vars.h               |   6 +
+ arch/arm64/kvm/Kconfig                       |   7 +
+ arch/arm64/kvm/hyp/Makefile                  |   2 +-
+ arch/arm64/kvm/hyp/hyp-print.c               |  45 ++
+ arch/arm64/kvm/hyp/include/hyp/hyp_print.h   |   8 +
+ arch/arm64/kvm/hyp/nvhe/Makefile             |   3 +-
+ arch/arm64/kvm/hyp/nvhe/debug/count_shared.c | 249 ++++++++
+ arch/arm64/kvm/hyp/nvhe/debug/debug-pl011.h  | 230 ++++++++
+ arch/arm64/kvm/hyp/nvhe/debug/parse_attr.c   | 228 ++++++++
+ arch/arm64/kvm/hyp/nvhe/debug/print.c        |  78 +++
+ arch/arm64/kvm/hyp/nvhe/debug/strlen.S       | 131 +++++
+ arch/arm64/kvm/hyp/nvhe/debug/subr_prf.c     | 567 +++++++++++++++++++
+ arch/arm64/kvm/hyp/nvhe/debug/validate.c     | 101 ++++
+ arch/arm64/kvm/hyp/nvhe/setup.c              |  22 +
+ arch/arm64/kvm/mmu.c                         |  42 ++
+ 16 files changed, 1721 insertions(+), 2 deletions(-)
+ create mode 100644 arch/arm64/kvm/hyp/hyp-print.c
+ create mode 100644 arch/arm64/kvm/hyp/include/hyp/hyp_print.h
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/count_shared.c
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/debug-pl011.h
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/parse_attr.c
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/print.c
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/strlen.S
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/subr_prf.c
+ create mode 100644 arch/arm64/kvm/hyp/nvhe/debug/validate.c
+
+diff --git a/arch/arm64/configs/qemu_defconfig b/arch/arm64/configs/qemu_defconfig
+index 4972a81d40d6..c6f6eaf69e43 100644
+--- a/arch/arm64/configs/qemu_defconfig
++++ b/arch/arm64/configs/qemu_defconfig
+@@ -1213,3 +1213,7 @@ CONFIG_DEBUG_KERNEL=y
+ # CONFIG_DEBUG_PREEMPT is not set
+ # CONFIG_FTRACE is not set
+ CONFIG_MEMTEST=y
++#
++CONFIG_KVM_ARM_HYP_DEBUG_UART=y
++CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR=0x09000000
++
+diff --git a/arch/arm64/kernel/image-vars.h b/arch/arm64/kernel/image-vars.h
+index 2c210a5001ef..319e06384613 100644
+--- a/arch/arm64/kernel/image-vars.h
++++ b/arch/arm64/kernel/image-vars.h
+@@ -138,6 +138,12 @@ KVM_NVHE_ALIAS(kvm_protected_mode_initialized);
+ KVM_NVHE_ALIAS(pkvm_force_nc);
+ #endif
+ 
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++KVM_NVHE_ALIAS(kvm_hyp_debug_uart_set_basep);
++KVM_NVHE_ALIAS(hyp_alloc_private_va_range);
++#endif
++
++
+ #endif /* CONFIG_KVM */
+ 
+ #endif /* __ARM64_KERNEL_IMAGE_VARS_H */
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index f88252aeacb3..f74f8682a650 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -75,4 +75,11 @@ config PKVM_MODULE_PATH
+ 	  Directory where the pKVM modules are found. If empty, the modules
+ 	  will be searched into the default path /lib/modules/<uname>.
+ 
++config KVM_ARM_HYP_DEBUG_UART
++	bool "Hack up some basic UART functionality at EL2"
++
++config KVM_ARM_HYP_DEBUG_UART_ADDR
++	hex "Physical address of the PL011 for EL2 to use"
++	depends on KVM_ARM_HYP_DEBUG_UART
++	default 0x0900000
+ endif # VIRTUALIZATION
+diff --git a/arch/arm64/kvm/hyp/Makefile b/arch/arm64/kvm/hyp/Makefile
+index a38dea6186c9..820d635de829 100644
+--- a/arch/arm64/kvm/hyp/Makefile
++++ b/arch/arm64/kvm/hyp/Makefile
+@@ -7,4 +7,4 @@ incdir := $(srctree)/$(src)/include
+ subdir-asflags-y := -I$(incdir)
+ subdir-ccflags-y := -I$(incdir)
+ 
+-obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o
++obj-$(CONFIG_KVM) += vhe/ nvhe/ hyp-print.o pgtable.o
+diff --git a/arch/arm64/kvm/hyp/hyp-print.c b/arch/arm64/kvm/hyp/hyp-print.c
+new file mode 100644
+index 000000000000..774aa177bb52
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/hyp-print.c
+@@ -0,0 +1,45 @@
++/*
++ * Copyright (c) 2013-2014, ARM Limited and Contributors. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ * Redistributions of source code must retain the above copyright notice, this
++ * list of conditions and the following disclaimer.
++ *
++ * Redistributions in binary form must reproduce the above copyright notice,
++ * this list of conditions and the following disclaimer in the documentation
++ * and/or other materials provided with the distribution.
++ *
++ * Neither the name of ARM nor the names of its contributors may be used
++ * to endorse or promote products derived from this software without specific
++ * prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++#include<linux/kernel.h>
++
++int
++hyp_vsnprintf(char *str, size_t size, const char *format, va_list ap);
++
++void hyp_print(const char *fmt, ...)
++{
++	int count = 0;
++	va_list args;
++
++	va_start(args, fmt);
++	vprintk(fmt, args);
++	va_end(args);
++}
++
++
+diff --git a/arch/arm64/kvm/hyp/include/hyp/hyp_print.h b/arch/arm64/kvm/hyp/include/hyp/hyp_print.h
+new file mode 100644
+index 000000000000..91bd76caa482
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/include/hyp/hyp_print.h
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#ifndef __ARM64_KVM_HYP_HYP_PRINT_H__
++#define __ARM64_KVM_HYP_HYP_PRINT_H__
++
++int hyp_print(const char *fmt, ...);
++
++#endif
+diff --git a/arch/arm64/kvm/hyp/nvhe/Makefile b/arch/arm64/kvm/hyp/nvhe/Makefile
+index d0735bf1ced4..62de0aae2825 100644
+--- a/arch/arm64/kvm/hyp/nvhe/Makefile
++++ b/arch/arm64/kvm/hyp/nvhe/Makefile
+@@ -6,7 +6,8 @@ hyp-obj-y := timer-sr.o sysreg-sr.o debug-sr.o switch.o tlb.o hyp-init.o host.o
+ 	 hyp-main.o hyp-smp.o psci-relay.o early_alloc.o page_alloc.o \
+ 	 cache.o setup.o mm.o mem_protect.o sys_regs.o pkvm.o stacktrace.o ffa.o iommu.o \
+ 	 serial.o
+-hyp-obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o \
++hyp-obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o 
++hyp-obj-y += debug/print.o debug/subr_prf.o debug/strlen.o \
+ 	 ../fpsimd.o ../hyp-entry.o ../exception.o ../pgtable.o
+ hyp-obj-$(CONFIG_TRACING) += clock.o events.o trace.o
+ hyp-obj-$(CONFIG_DEBUG_LIST) += list_debug.o
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/count_shared.c b/arch/arm64/kvm/hyp/nvhe/debug/count_shared.c
+new file mode 100644
+index 000000000000..5d4d78bb5ede
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/count_shared.c
+@@ -0,0 +1,249 @@
++#include <linux/kernel.h>
++#include <asm/kvm_mmu.h>
++#include <asm/kvm_host.h>
++#include <asm/kvm_pgtable.h>
++
++#include <hyp/hyp_print.h>
++#include <nvhe/mem_protect.h>
++#include <nvhe/pkvm.h>
++
++#define ATTR_MASK 0xffff000000000fffUL
++#define TRL_STAGE1		1
++#define TRL_STAGE2		2
++#define TRL_STAGEA		3
++#define GUEST_MEM_MAX 0x200000000
++#define PADDR_MASK			0x00FFFFFFF000UL
++
++//#define GUEST_MEM_MAX 0x20000
++
++struct walker_data {
++	u64	phys;
++	u64 	*ptep;
++};
++
++
++static int count_shares_walker(u64 addr, u64 end, u32 level, kvm_pte_t *ptep,
++		       enum kvm_pgtable_walk_flags flag,
++		       void * const arg)
++{
++	struct walker_data *data = arg;
++	if (((*ptep) & 3) == 3) {
++		data->phys = ((*ptep) & PADDR_MASK);
++		data->ptep = ptep;
++		//hyp_print("lvl %d addr: %llx -> %llx \n",level, addr,
++		//		((*ptep) & PADDR_MASK));
++	}
++	//else
++	//	hyp_print("shares_walker lvl %d addr: %llx -> %llx \n",level, addr,
++	//			((*ptep) & PADDR_MASK));
++	return 0;
++}
++
++struct kvm_shadow_vm *get_shadow_by_index(int shadow_index);
++extern struct host_kvm host_kvm;
++
++u64 pt_walk(struct kvm_pgtable *pgt, u64 stage, u64 vaddr, u64 **ptep)
++{
++	struct walker_data wdata;
++	struct kvm_pgtable_walker walker = {
++		.cb	= count_shares_walker,
++		.flags	= KVM_PGTABLE_WALK_LEAF,
++		.arg	= &wdata,
++	};
++	int ret;
++	u64 addr = 0;
++
++	wdata.phys = ~0UL;
++	//hyp_print("pt_walk %llx\n",vaddr);
++	switch (stage) {
++	case TRL_STAGE2:
++		ret = kvm_pgtable_walk(pgt, vaddr, 0x1000, &walker);
++		if (ret == 0) {
++			addr = wdata.phys;
++			//hyp_print("pt_walk %llx\n",addr);
++		}
++		break;
++	case TRL_STAGEA:
++	case TRL_STAGE1:
++	default:
++		break;
++	}
++
++	return addr;
++
++}
++
++#if 1
++int count_shared(u32 vmid, bool lock)
++{
++	u64 paddr1, paddr2, vaddr1;
++	u64 *pte1, *pte2;
++	int shared = 0, total = 0;
++	struct kvm_shadow_vm *vm;
++	struct kvm_pgtable *guest_pgt;
++	struct kvm_pgtable *host_pgt = host_kvm.arch.mmu.pgt;
++
++	vm = get_shadow_by_index(0);
++	if (!vm)
++		return -EINVAL;
++
++	guest_pgt = vm->arch.mmu.pgt;
++	//hyp_print("count_shared\n");
++	vaddr1 = 0;
++	while (vaddr1 <= GUEST_MEM_MAX) {
++		paddr1 = pt_walk(guest_pgt, TRL_STAGE2, vaddr1, &pte1);
++		if (paddr1 == ~0UL)
++			goto cont;
++		total += 1;
++		paddr2 = pt_walk(host_pgt, TRL_STAGE2, paddr1, &pte2);
++		if (paddr2 == ~0UL)
++			goto cont;
++
++		shared += 1;
++#ifdef DEBUG
++		hyp_print("Page %p is mapped in both the guest and the host\n",
++		    paddr2);
++#endif
++#if 0
++		if (lock) {
++			*pte1 &= ~(S2_XN_MASK & S2AP_MASK);
++			*pte1 |= PAGE_HYP_RO;
++
++			dsbish();
++			isb();
++			tlbi_el1_ipa(paddr1);
++			dsbish();
++			isb();
++		}
++#endif
++	cont:
++		vaddr1 += PAGE_SIZE;
++	}
++	hyp_print("%d pages in the guest %u, total of %d shared with the host\n",
++	    total, vmid, shared);
++
++	return shared;
++}
++#endif
++
++int stest(u64 start, u64 size)
++{
++	count_shared(0,0);
++	return 0;
++}
++
++int hyp_count_shared(int guest)
++{
++	stest(0, 0);
++	return 0;
++}
++
++#if 0
++//int count_shared(u32 vmid)
++int stest(u64 start, u64 size)
++{
++	int ret;
++	struct kvm_shadow_vm *vm;
++
++#if 1
++	struct walker_data walker_data;
++	struct kvm_pgtable_walker walker = {
++		.cb	= count_shares_walker,
++		.flags	= KVM_PGTABLE_WALK_LEAF,
++		.arg	= &walker_data,
++	};
++
++	//shadow_table
++	//hyp_print("addr %llx, size %llx\n", start, size);
++#endif
++#if 0
++	struct host_data host_walker_data;
++	//struct count_shares_data *data = arg;
++	struct kvm_pgtable_walker hwalker = {
++		.cb	= host_walker,
++		.flags	= KVM_PGTABLE_WALK_LEAF,
++		.arg	= &walker_data,
++	};
++#endif
++
++	hyp_print("hkvm %llx\n,",&host_kvm);
++//	vm = get_shadow_by_id(guest);
++	vm = get_shadow_by_index(0);
++
++	//struct kvm_arch arch = vm->arch:
++	hyp_print("count_shared %llx %llx\n",start, size);
++
++
++	ret = kvm_pgtable_walk(vm->arch.mmu.pgt, start, size, &walker);
++
++#if 1
++	hyp_print("host_kvm.arch.mmu.pgt %llx\n",host_kvm.arch.mmu.pgt);
++	ret = kvm_pgtable_walk(host_kvm.arch.mmu.pgt, start, size, &hwalker);
++	hyp_print("\nhost_kvm.pgt %llx\n",&host_kvm.pgt);
++	ret = kvm_pgtable_walk(&host_kvm.pgt, start, size, &hwalker);
++
++
++	//if (walker_data.phys) {
++		//hyp_print("shares ipa: %lld phys: %lld",addr, phys);
++		//data->shares++;
++	//}
++#endif
++
++	hyp_print("walk done %d %d\n",walker_data.shares, ret);
++	return 0;
++}
++#endif
++#if 0
++	struct ptable *tbl;
++	uint64_t addr, ipa, lvl;
++
++
++
++	if (guest == host) {
++		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
++		host->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
++	}
++
++	switch (stage) {
++	case STAGEA:
++		ipa = pt_walk(guest, STAGE1, vaddr, 0);
++		if (ipa == ~0UL) {
++			addr = ipa;
++			break;
++		}
++		addr = pt_walk(guest, STAGE2, ipa, 0);
++		break;
++	case STAGE2:
++		lvl = guest->table_levels_el1s2;
++		addr = __pt_walk(guest->EL1S2_pgd, vaddr, ptep, &lvl, NULL);
++		break;
++	case STAGE1:
++		/*
++		 * Kernel or userspace address? We don't track the userspace
++		 * beyond the vm qemu, so we resolve against that.
++		 */
++		if (bit_raised(vaddr, 55))
++			tbl = guest->EL1S1_1_pgd;
++		else
++			tbl = guest->EL1S1_0_pgd;
++
++		lvl = guest->table_levels_el1s1;
++		addr = __pt_walk(tbl, vaddr, ptep, &lvl, NULL);
++		break;
++	case PATRACK_STAGE1:
++		lvl = guest->table_levels_el1s1;
++		addr = __pt_walk(guest->patrack.EL1S1_0_pgd, vaddr, ptep, &lvl, NULL);
++		break;
++	default:
++		addr = ~0UL;
++		break;
++	}
++	return addr;
++}
++
++int hyp_count_shared(int guest)
++{
++	stest(0x40000000, 0x80000000);
++	return 0;
++}
++#endif
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/debug-pl011.h b/arch/arm64/kvm/hyp/nvhe/debug/debug-pl011.h
+new file mode 100644
+index 000000000000..756d2abd3d5c
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/debug-pl011.h
+@@ -0,0 +1,230 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Stand-alone header for basic debug output on the PL011 UART.  To use it,
++ * ensure that CONFIG_KVM_ARM_HYP_DEBUG_UART is enabled and that
++ * CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR is the physical address of the PL011
++ * UART that you want to use. Then just include this header and try not to
++ * vomit at the state of the macros and functions it provides.
++ *
++ * The C functions only work when the MMU is enabled, but the assembly macros
++ * should work pretty much everywhere.
++ *
++ * It's slow and racy, but you'll be fine. Patches unwelcome.
++ */
++
++#ifndef __ARM64_KVM_HYP_DEBUG_PL011_H__
++#define __ARM64_KVM_HYP_DEBUG_PL011_H__
++
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++
++#define HYP_PL011_BASE_PHYS	CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR
++#define HYP_PL011_UARTFR	0x18
++
++#define HYP_PL011_UARTFR_BUSY	3
++#define HYP_PL011_UARTFR_FULL	5
++
++#ifdef __ASSEMBLY__
++
++.macro hyp_pl011_base, tmp
++	mrs		\tmp, sctlr_el2
++	tbz		\tmp, #0, 9990f
++	isb
++
++alternative_cb kvm_hyp_debug_uart_set_basep
++	movz		\tmp, #0
++	movk		\tmp, #0, lsl #16
++	movk		\tmp, #0, lsl #32
++	movk		\tmp, #0, lsl #48
++alternative_cb_end
++
++	kern_hyp_va	\tmp
++	ldr		\tmp, [\tmp]
++	b		9991f
++9990:	mov		\tmp, HYP_PL011_BASE_PHYS
++9991:
++.endm
++
++/*
++ * 'c' is a W register containing the character to transmit. Preserved.
++ * 'tmpnr' is the number of another scratch register. Clobbered.
++ */
++.macro hyp_putc, c, tmpnr
++9992:	hyp_pl011_base	x\tmpnr
++	ldr		w\tmpnr, [x\tmpnr, HYP_PL011_UARTFR]
++	tbnz		w\tmpnr, HYP_PL011_UARTFR_FULL, 9992b
++	hyp_pl011_base	x\tmpnr
++	str		\c, [x\tmpnr]
++9992:	hyp_pl011_base	x\tmpnr
++	ldr		w\tmpnr, [x\tmpnr, HYP_PL011_UARTFR]
++	tbnz		w\tmpnr, HYP_PL011_UARTFR_BUSY, 9992b
++.endm
++
++/*
++ * 's' is an X register containing the address of the string to print.
++ * 'tmpnr1' and  'tmpnr2' are numbers of other scratch registers.
++ * All three registers clobbered.
++ *
++ * The string must be mapped, so it's best to use a combination of '.ascii'
++ * and PC-relative addressing (i.e. an ADR instruction)
++ */
++.macro hyp_puts, s, tmpnr1, tmpnr2
++9993:	ldrb		w\tmpnr1, [\s]
++	cbz		w\tmpnr1, 9993f
++	hyp_putc	w\tmpnr1, \tmpnr2
++	add		\s, \s, #1
++	b		9993b
++9993:	mov		w\tmpnr1, '\n'
++	hyp_putc	w\tmpnr1, \tmpnr2
++.endm
++
++.macro __hyp_putx4, xnr, tmpnr
++	bic		x\xnr, x\xnr, #0xfffffff0
++	sub		w\tmpnr, w\xnr, #10
++	tbnz		w\tmpnr, #31, 9994f
++	add		x\xnr, x\xnr, #0x27
++9994:	add		x\xnr, x\xnr, #0x30
++	hyp_putc	w\xnr, \tmpnr
++.endm
++
++/*
++ * 'x' is an X register containing a value to printed in hex. Preserved.
++ * 'tmpnr1' and  'tmpnr2' are numbers of other scratch registers. Clobbered.
++ */
++.macro hyp_putx64, x, tmpnr1, tmpnr2
++	mov		w\tmpnr1, '0'
++	hyp_putc	w\tmpnr1, \tmpnr2
++	mov		w\tmpnr1, 'x'
++	hyp_putc	w\tmpnr1, \tmpnr2
++	movz		x\tmpnr1, #15, lsl #32
++9995:	bfxil		x\tmpnr1, \x, #60, #4
++	ror		\x, \x, #60
++	__hyp_putx4	\tmpnr1, \tmpnr2
++	ror		x\tmpnr1, x\tmpnr1, #32
++	cbz		w\tmpnr1, 9995f
++	sub		x\tmpnr1, x\tmpnr1, #1
++	ror		x\tmpnr1, x\tmpnr1, #32
++	b		9995b
++9995:	mov		w\tmpnr1, '\n'
++	hyp_putc	w\tmpnr1, \tmpnr2
++.endm
++
++#else
++
++static inline void *__hyp_pl011_base(void)
++{
++	unsigned long ioaddr;
++
++	asm volatile(ALTERNATIVE_CB(
++		"movz	%0, #0\n"
++		"movk	%0, #0, lsl #16\n"
++		"movk	%0, #0, lsl #32\n"
++		"movk	%0, #0, lsl #48",
++		kvm_hyp_debug_uart_set_basep)
++		: "=r" (ioaddr));
++
++	return *((void **)kern_hyp_va(ioaddr));
++}
++
++static inline unsigned int __hyp_readw(void *ioaddr)
++{
++	unsigned int val;
++	asm volatile("ldr %w0, [%1]" : "=r" (val) : "r" (ioaddr));
++	return val;
++}
++
++static inline void __hyp_writew(unsigned int val, void *ioaddr)
++{
++	asm volatile("str %w0, [%1]" : : "r" (val), "r" (ioaddr));
++}
++
++static inline void hyp_putc(char c)
++{
++	unsigned int val;
++	void *base = __hyp_pl011_base();
++
++	do {
++		val = __hyp_readw(base + HYP_PL011_UARTFR);
++	} while (val & (1U << HYP_PL011_UARTFR_FULL));
++
++	__hyp_writew(c, base);
++
++	do {
++		val = __hyp_readw(base + HYP_PL011_UARTFR);
++	} while (val & (1U << HYP_PL011_UARTFR_BUSY));
++}
++
++/*
++ * Caller needs to ensure string is mapped. If it lives in .rodata, you should
++ * be good as long as we're using PC-relative addressing (probably true).
++ */
++static inline void hyp_puts(char *s)
++{
++	while (*s)
++		hyp_putc(*s++);
++	hyp_putc('\n');
++	hyp_putc('\r');
++}
++
++static inline void __hyp_putx4(unsigned int x)
++{
++	x &= 0xf;
++	if (x <= 9)
++		x += '0';
++	else
++		x += ('a' - 0xa);
++	hyp_putc(x);
++}
++
++static inline void __hyp_putx4n(unsigned long x, int n)
++{
++	int i = n >> 2;
++
++	hyp_putc('0');
++	hyp_putc('x');
++
++	while (i--)
++		__hyp_putx4(x >> (4 * i));
++
++	hyp_putc('\n');
++	hyp_putc('\r');
++
++}
++
++static inline void hyp_putx32(unsigned int x)
++{
++	__hyp_putx4n(x, 32);
++}
++
++static inline void hyp_putx64(unsigned long x)
++{
++	__hyp_putx4n(x, 64);
++}
++
++#endif
++
++#else
++
++#warning "Please don't include debug-pl011.h if you're not debugging"
++
++#ifdef __ASSEMBLY__
++
++.macro hyp_putc, c, tmpnr
++.endm
++
++.macro hyp_puts, s, tmpnr1, tmpnr2
++.endm
++
++.macro hyp_putx64, x, tmpnr1, tmpnr2
++.endm
++
++#else
++
++static inline void hyp_putc(char c) { }
++static inline void hyp_puts(char *s) { }
++static inline void hyp_putx32(unsigned int x) { }
++static inline void hyp_putx64(unsigned long x) { }
++
++#endif
++
++#endif	/* CONFIG_KVM_ARM_HYP_DEBUG_UART */
++#endif	/* __ARM64_KVM_HYP_DEBUG_PL011_H__ */
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/parse_attr.c b/arch/arm64/kvm/hyp/nvhe/debug/parse_attr.c
+new file mode 100644
+index 000000000000..9b0695c34814
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/parse_attr.c
+@@ -0,0 +1,228 @@
++#define STAGE1          1
++#define STAGE2          2
++
++#include <linux/kernel.h>
++
++#define S1_PXN_SHIFT            53
++#define S1_PXN                  (1UL << S1_PXN_SHIFT)
++
++#define S1_UXN_SHIFT            54
++#define S1_UXN                  (1UL << S1_UXN_SHIFT)
++
++
++/* Stage 2 */
++#define S2_XN_SHIFT             53
++#define S2_XN_MASK              (0x3UL << S2_XN_SHIFT)
++#define S2_EXEC_EL1EL0          (0x0UL << S2_XN_SHIFT)
++#define S2_EXEC_EL0             (0x1UL << S2_XN_SHIFT)
++#define S2_EXEC_NONE            (0x2UL << S2_XN_SHIFT)
++#define S2_EXEC_EL1             (0x3UL << S2_XN_SHIFT)
++
++#define S2AP_SHIFT              6
++#define S2AP_MASK               (0x3UL << S2AP_SHIFT)
++#define S2AP_NONE               (0 << S2AP_SHIFT)
++#define S2AP_READ               (1UL << S2AP_SHIFT)
++#define S2AP_WRITE              (2UL << S2AP_SHIFT)
++#define S2AP_RW                 (3UL << S2AP_SHIFT)
++
++#define PAGE_HYP_RW             (S2_EXEC_NONE | S2AP_RW)     //0x400000000000c0
++#define PAGE_HYP_RWX            (S2_EXEC_EL1EL0 | S2AP_RW)   //0x000000000000c0
++#define PAGE_HYP_RO             (S2_EXEC_NONE | S2AP_READ)   //0x40000000000040
++#define PAGE_HYP_EXEC           (S2_EXEC_EL1EL0 | S2AP_READ) //0x00000000000040
++
++#define S2_MEM_ATTR_SHIFT       2
++#define S2_MEM_ATTR_MASK        (0x0fUL << S2_MEM_ATTR_SHIFT)
++#define S2_MEMTYPE_DEVICE       0
++
++/* Shareability SH [9:8], Stage 1 and 2 */
++#define SH_SHIFT                0x8
++#define SH_NO                   0x0
++#define SH_OUT                  0x2
++#define SH_INN                  0x3
++
++#define S2_SH_INN               (SH_INN << SH_SHIFT)
++
++/* Stage 2 MemAttr[3:2] */
++#define S2_MEM_ATTR_SHIFT       2
++#define S2_MEM_TYPE_SHIFT       (S2_MEM_ATTR_SHIFT + 2)
++#define S1_AP_SHIFT             6
++#define S1_AP_MASK              (0x3UL << S1_AP_SHIFT)
++
++#define S1_AP_RW_N              0UL
++#define S1_AP_RW_RW             (1UL << S1_AP_SHIFT)
++#define S1_AP_RO_N              (2UL << S1_AP_SHIFT)
++#define S1_AP_RO_RO             (3UL << S1_AP_SHIFT)
++
++#define PAGE_KERNEL_RW          S1_UXN              //0x40000000000000
++#define PAGE_KERNEL_RWX         0x00000000000000
++#define PAGE_KERNEL_RO          (S1_UXN | S1_AP_RO_N) //0x40000000000080
++#define PAGE_KERNEL_EXEC        S1_AP_RO_N          //0x00000000000080
++
++/* Stage 2 */
++#define S2_XN_SHIFT             53
++#define S2_XN_MASK              (0x3UL << S2_XN_SHIFT)
++#define S2_EXEC_EL1EL0          (0x0UL << S2_XN_SHIFT)
++#define S2_EXEC_EL0             (0x1UL << S2_XN_SHIFT)
++#define S2_EXEC_NONE            (0x2UL << S2_XN_SHIFT)
++#define S2_EXEC_EL1             (0x3UL << S2_XN_SHIFT)
++
++#define S2AP_SHIFT              6
++#define S2AP_MASK               (0x3UL << S2AP_SHIFT)
++#define S2AP_NONE               (0 << S2AP_SHIFT)
++#define S2AP_READ               (1UL << S2AP_SHIFT)
++#define S2AP_WRITE              (2UL << S2AP_SHIFT)
++#define S2AP_RW                 (3UL << S2AP_SHIFT)
++
++#define PAGE_HYP_RW             (S2_EXEC_NONE | S2AP_RW)     //0x400000000000c0
++#define PAGE_HYP_RWX            (S2_EXEC_EL1EL0 | S2AP_RW)   //0x000000000000c0
++#define PAGE_HYP_RO             (S2_EXEC_NONE | S2AP_READ)   //0x40000000000040
++#define PAGE_HYP_EXEC           (S2_EXEC_EL1EL0 | S2AP_READ) //0x00000000000040
++
++#define S2_MEM_ATTR_SHIFT       2
++#define S2_MEM_ATTR_MASK        (0x0fUL << S2_MEM_ATTR_SHIFT)
++#define S2_MEMTYPE_DEVICE       0
++
++/* Shareability SH [9:8], Stage 1 and 2 */
++#define SH_SHIFT                0x8
++#define SH_NO                   0x0
++#define SH_OUT                  0x2
++#define SH_INN                  0x3
++
++#define S2_SH_INN               (SH_INN << SH_SHIFT)
++
++/* Stage 2 MemAttr[3:2] */
++#define S2_MEM_ATTR_SHIFT       2
++/* Shareability SH [9:8], Stage 1 and 2 */
++#define SH_SHIFT                0x8
++#define SH_NO                   0x0
++#define SH_OUT                  0x2S2_OWB
++#define SH_INN                  0x3
++
++#define S2_SH_INN               (SH_INN << SH_SHIFT)
++
++/* Stage 2 MemAttr[3:2] */
++#define S2_MEM_ATTR_SHIFT       2
++#define S2_MEM_TYPE_SHIFT       (S2_MEM_ATTR_SHIFT + 2)
++#define S2_MEM_TYPE_MASK        (0x3 << S2_MEM_TYPE_SHIFT)
++#define S2_DEVICE               (0x0 << S2_MEM_TYPE_SHIFT)
++#define S2_ONONE                (0x1 << S2_MEM_TYPE_SHIFT)
++#define S2_OWT                  (0x2 << S2_MEM_TYPE_SHIFT)
++#define S2_OWB                  (0x3 << S2_MEM_TYPE_SHIFT)
++
++/* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] == 0b00 */
++#define NGNRNE                  (0x0 << S2_MEM_ATTR_SHIFT)
++#define NGNRE                   (0x1 << S2_MEM_ATTR_SHIFT)
++#define NGRE                    (0x2 << S2_MEM_ATTR_SHIFT)
++#define GRE                     (0x3 << S2_MEM_ATTR_SHIFT)
++
++/* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] != 0b00 */
++/* Inner Non-cacheable */
++#define S2_INONE                (0x1 << S2_MEM_ATTR_SHIFT)
++/* Inner Write-Through Cacheable */
++#define S2_IWT                  (0x2 << S2_MEM_ATTR_SHIFT)
++/* Inner Write-Back Cacheable */
++#define S2_IWB                  (0x3 << S2_MEM_ATTR_SHIFT)
++
++/* Stage 2 device memory attributes */
++#define S2_DEV_NGNRNE           (S2_DEVICE | NGNRNE)
++#define S2_DEV_NGNRE            (S2_DEVICE | NGNRE)
++#define S2_DEV_NGRE             (S2_DEVICE | NGRE)
++#define S2_DEV_GRE              (S2_DEVICE | GRE)
++
++
++
++int hyp_snprint(char *s, size_t slen, const char *fmt, ...);
++
++#if 1
++char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
++{
++        const char *pv_access = "R-";
++        const char *upv_access = "--";
++        char pv_perm = '-';
++        char upv_perm = '-';
++        const char *mtype = "";
++
++        if (p == 0) {
++                if (stage == STAGE2)
++                        return "prv usr type";
++                else
++                        return "prv usr";
++        }
++
++        //if ((stage == STAGE1) || (stage == EL2_STAGE1)) {
++         if (stage == STAGE1) {
++                pv_perm = (attrs & S1_PXN) ? '-' : 'X';
++                upv_perm = (attrs & S1_UXN) ? '-' : 'X';
++
++                switch (attrs & S1_AP_MASK) {
++                case S1_AP_RW_N:
++                        pv_access = "RW";
++                        upv_access = "--";
++                        break;
++                case S1_AP_RW_RW:
++                        pv_access = "RW";
++                        upv_access = "RW";
++                        if (pv_perm == 'X') {
++                                /* Not executable, because AArch64 execution
++                                 * treats all regions writable at EL0 as being PXN
++                                 */
++                                pv_perm = 'x';
++                        }
++                        break;
++                case S1_AP_RO_N:
++                        pv_access = "R-";
++                        upv_access = "--";
++                        break;
++                case S1_AP_RO_RO:
++                        pv_access = "R-";
++                        upv_access = "R-";
++                        break;
++                }
++        } else if (stage == STAGE2) {
++                switch (attrs & S2_XN_MASK) {
++                case S2_EXEC_EL1EL0:
++                        pv_perm =  'X';
++                        upv_perm = 'X';
++                        break;
++                case S2_EXEC_EL0:
++                        pv_perm = '-';
++                        upv_perm = 'X';
++                        break;
++                case S2_EXEC_NONE:
++                        pv_perm = '-';
++                        upv_perm = '-';
++                        break;
++                case S2_EXEC_EL1:
++                        pv_perm = 'X';
++                        upv_perm = '-';
++                }
++
++                switch (attrs & S2AP_MASK) {
++                case S2AP_NONE:
++                        pv_access = "--";
++                        upv_access = "--";
++                        break;
++                case S2AP_READ:
++                        pv_access = "R-";
++                        upv_access = "R-";
++                        break;
++                case S2AP_WRITE:
++                        pv_access = "-W";
++                        upv_access = "-W";
++                        break;
++                case S2AP_RW:
++                        pv_access = "RW";
++                        upv_access = "RW";
++                        break;
++                }
++                mtype = ((attrs & S2_MEM_TYPE_MASK) == S2_DEVICE) ? "Device" :
++                                                                   "Normal";
++        } else
++                return "Unknown stage?";
++        // hyp_printf("%s%c %s%c %s", pv_access, pv_perm, upv_access, upv_perm,
++                 //        mtype);
++        hyp_snprint(p,128, "%s%c %s%c %s", pv_access, pv_perm, upv_access, upv_perm,
++                mtype);
++        return p;
++}
++#endif
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/print.c b/arch/arm64/kvm/hyp/nvhe/debug/print.c
+new file mode 100644
+index 000000000000..375cf3a094b7
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/print.c
+@@ -0,0 +1,78 @@
++/*
++ * Copyright (c) 2013-2014, ARM Limited and Contributors. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ * Redistributions of source code must retain the above copyright notice, this
++ * list of conditions and the following disclaimer.
++ *
++ * Redistributions in binary form must reproduce the above copyright notice,
++ * this list of conditions and the following disclaimer in the documentation
++ * and/or other materials provided with the distribution.
++ *
++ * Neither the name of ARM nor the names of its contributors may be used
++ * to endorse or promote products derived from this software without specific
++ * prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++#include<linux/kernel.h>
++
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++
++int
++hyp_vsnprintf(char *str, size_t size, const char *format, va_list ap);
++
++/* Choose max of 128 chars for now. */
++#define PRINT_BUFFER_SIZE 128
++#include <asm/kvm_mmu.h>
++#include "debug-pl011.h"
++
++int hyp_print(const char *fmt, ...)
++{
++	va_list args;
++	char buf[PRINT_BUFFER_SIZE];
++	int count;
++
++	va_start(args, fmt);
++	hyp_vsnprintf(buf, sizeof(buf) - 1, fmt, args);
++	va_end(args);
++
++	/* Use putchar directly as 'puts()' adds a newline. */
++	buf[PRINT_BUFFER_SIZE - 1] = '\0';
++	count = 0;
++	while (buf[count]) {
++		hyp_putc(buf[count]);
++		count++;
++	}
++
++	return count;
++}
++
++int hyp_snprint(char *s, size_t slen, const char *format, ...)
++{
++	va_list ap;
++	int ret;
++
++	va_start(ap, format);
++	hyp_vsnprintf(s, slen, format, ap);
++	va_end(ap);
++	return ret;
++}
++#else
++
++int hyp_print(const char *fmt, ...) { return 0; }
++int hyp_snprint(const char *fmt, ...) { return 0; }
++
++#endif
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/strlen.S b/arch/arm64/kvm/hyp/nvhe/debug/strlen.S
+new file mode 100644
+index 000000000000..1b23e2a61584
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/strlen.S
+@@ -0,0 +1,131 @@
++/* Copyright (c) 2013, Linaro Limited
++   All rights reserved.
++
++   Redistribution and use in source and binary forms, with or without
++   modification, are permitted provided that the following conditions are met:
++       * Redistributions of source code must retain the above copyright
++         notice, this list of conditions and the following disclaimer.
++       * Redistributions in binary form must reproduce the above copyright
++         notice, this list of conditions and the following disclaimer in the
++         documentation and/or other materials provided with the distribution.
++       * Neither the name of the Linaro nor the
++         names of its contributors may be used to endorse or promote products
++         derived from this software without specific prior written permission.
++
++   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++   HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
++
++/* Assumptions:
++ *
++ * ARMv8-a, AArch64
++ */
++
++/* Arguments and results.  */
++#define srcin		x0
++#define len		x0
++
++/* Locals and temporaries.  */
++#define src		x1
++#define data1		x2
++#define data2		x3
++#define data2a		x4
++#define has_nul1	x5
++#define has_nul2	x6
++#define tmp1		x7
++#define tmp2		x8
++#define tmp3		x9
++#define tmp4		x10
++#define zeroones	x11
++#define pos		x12
++
++	.macro def_fn f p2align=0
++	.text
++	.p2align \p2align
++	.global \f
++	.type \f, %function
++\f:
++	.endm
++
++#define REP8_01 0x0101010101010101
++#define REP8_7f 0x7f7f7f7f7f7f7f7f
++#define REP8_80 0x8080808080808080
++
++	/* Start of critial section -- keep to one 64Byte cache line.  */
++def_fn strlen p2align=6
++	mov	zeroones, #REP8_01
++	bic	src, srcin, #15
++	ands	tmp1, srcin, #15
++	b.ne	.Lmisaligned
++	/* NUL detection works on the principle that (X - 1) & (~X) & 0x80
++	   (=> (X - 1) & ~(X | 0x7f)) is non-zero iff a byte is zero, and
++	   can be done in parallel across the entire word.  */
++	/* The inner loop deals with two Dwords at a time.  This has a
++	   slightly higher start-up cost, but we should win quite quickly,
++	   especially on cores with a high number of issue slots per
++	   cycle, as we get much better parallelism out of the operations.  */
++.Lloop:
++	ldp	data1, data2, [src], #16
++.Lrealigned:
++	sub	tmp1, data1, zeroones
++	orr	tmp2, data1, #REP8_7f
++	sub	tmp3, data2, zeroones
++	orr	tmp4, data2, #REP8_7f
++	bic	has_nul1, tmp1, tmp2
++	bics	has_nul2, tmp3, tmp4
++	ccmp	has_nul1, #0, #0, eq	/* NZCV = 0000  */
++	b.eq	.Lloop
++	/* End of critical section -- keep to one 64Byte cache line.  */
++
++	sub	len, src, srcin
++	cbz	has_nul1, .Lnul_in_data2
++#ifdef __AARCH64EB__
++	mov	data2, data1
++#endif
++	sub	len, len, #8
++	mov	has_nul2, has_nul1
++.Lnul_in_data2:
++#ifdef __AARCH64EB__
++	/* For big-endian, carry propagation (if the final byte in the
++	   string is 0x01) means we cannot use has_nul directly.  The
++	   easiest way to get the correct byte is to byte-swap the data
++	   and calculate the syndrome a second time.  */
++	rev	data2, data2
++	sub	tmp1, data2, zeroones
++	orr	tmp2, data2, #REP8_7f
++	bic	has_nul2, tmp1, tmp2
++#endif
++	sub	len, len, #8
++	rev	has_nul2, has_nul2
++	clz	pos, has_nul2
++	add	len, len, pos, lsr #3		/* Bits to bytes.  */
++	ret
++
++.Lmisaligned:
++	cmp	tmp1, #8
++	neg	tmp1, tmp1
++	ldp	data1, data2, [src], #16
++	lsl	tmp1, tmp1, #3		/* Bytes beyond alignment -> bits.  */
++	mov	tmp2, #~0
++#ifdef __AARCH64EB__
++	/* Big-endian.  Early bytes are at MSB.  */
++	lsl	tmp2, tmp2, tmp1	/* Shift (tmp1 & 63).  */
++#else
++	/* Little-endian.  Early bytes are at LSB.  */
++	lsr	tmp2, tmp2, tmp1	/* Shift (tmp1 & 63).  */
++#endif
++	orr	data1, data1, tmp2
++	orr	data2a, data2, tmp2
++	csinv	data1, data1, xzr, le
++	csel	data2, data2, data2a, le
++	b	.Lrealigned
++
++	.size	strlen, . - strlen
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/subr_prf.c b/arch/arm64/kvm/hyp/nvhe/debug/subr_prf.c
+new file mode 100644
+index 000000000000..6d22e27355ff
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/subr_prf.c
+@@ -0,0 +1,567 @@
++/*-
++ * Copyright (c) 1986, 1988, 1991, 1993
++ *	The Regents of the University of California.  All rights reserved.
++ * (c) UNIX System Laboratories, Inc.
++ * All or some portions of this file are derived from material licensed
++ * to the University of California by American Telephone and Telegraph
++ * Co. or Unix System Laboratories, Inc. and are reproduced herein with
++ * the permission of UNIX System Laboratories, Inc.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 4. Neither the name of the University nor the names of its contributors
++ *    may be used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ *	@(#)subr_prf.c	8.3 (Berkeley) 1/21/94
++ */
++
++/*
++ * Portions copyright (c) 2009-2014, ARM Limited and Contributors.
++ * All rights reserved.
++ */
++/*
++#include <stdio.h>
++#include <stdint.h>
++#include <stdarg.h>
++#include <stddef.h>
++#include <string.h>
++*/
++#include<linux/kernel.h>
++//#include <string.h>
++//#include <stdint.h>
++
++
++
++//#include <sys/ctype.h>
++#define toupper(c)  ((c) - 0x20 * (((c) >= 'a') && ((c) <= 'z')))
++
++typedef unsigned char u_char;
++typedef unsigned int u_int;
++typedef int64_t quad_t;
++typedef uint64_t u_quad_t;
++typedef unsigned long u_long;
++typedef unsigned short u_short;
++typedef int64_t intmax_t;
++typedef uint64_t uintmax_t;
++
++static inline int imax(int a, int b) { return (a > b ? a : b); }
++long unsigned int strlen(const void *c);
++/*
++ * Note that stdarg.h and the ANSI style va_start macro is used for both
++ * ANSI and traditional C compilers.
++ */
++
++#define TOCONS	0x01
++#define TOTTY	0x02
++#define TOLOG	0x04
++
++/* Max number conversion buffer length: a u_quad_t in base 2, plus NUL byte. */
++#define MAXNBUF	(sizeof(intmax_t) * 8 + 1)
++/*
++struct putchar_arg {
++	int	flags;
++	int	pri;
++	struct	tty *tty;
++	char	*p_bufr;
++	size_t	n_bufr;
++	char	*p_next;
++	size_t	remain;
++};
++*/
++struct snprintf_arg {
++	char	*str;
++	size_t	remain;
++};
++static int hyp_kvprintf(char const *fmt, void (*func)(int, void*), void *arg, int radix, va_list ap);
++static void  snprintf_func(int ch, void *arg);
++static char *ksprintn(char *nbuf, uintmax_t num, int base, int *len, int upper);
++static char const hex2ascii_data[] = "0123456789abcdefghijklmnopqrstuvwxyz";
++#define hex2ascii(hex) (hex2ascii_data[hex])
++int hyp_vsnprintf(char *str, size_t size, const char *format, va_list ap);
++
++#if 0
++extern	int log_open;
++
++static char *ksprintn(char *nbuf, uintmax_t num, int base, int *len, int upper);
++static void  snprintf_func(int ch, void *arg);
++static int kvprintf(char const *fmt, void (*func)(int, void*), void *arg, int radix, va_list ap);
++
++int vsnprintf(char *str, size_t size, const char *format, va_list ap);
++
++static char const hex2ascii_data[] = "0123456789abcdefghijklmnopqrstuvwxyz";
++#define hex2ascii(hex) (hex2ascii_data[hex])
++
++/*
++ * Scaled down version of sprintf(3).
++ */
++int
++sprintf(char *buf, const char *cfmt, ...)
++{
++	int retval;
++	va_list ap;
++
++	va_start(ap, cfmt);
++	retval = kvprintf(cfmt, NULL, (void *)buf, 10, ap);
++	buf[retval] = '\0';
++	va_end(ap);
++	return retval;
++}
++
++/*
++ * Scaled down version of vsprintf(3).
++ */
++int
++vsprintf(char *buf, const char *cfmt, va_list ap)
++{
++	int retval;
++
++	retval = kvprintf(cfmt, NULL, (void *)buf, 10, ap);
++	buf[retval] = '\0';
++	return retval;
++}
++
++/*
++ * Scaled down version of snprintf(3).
++ */
++int
++snprintf(char *str, size_t size, const char *format, ...)
++{
++	int retval;
++	va_list ap;
++
++	va_start(ap, format);
++	retval = vsnprintf(str, size, format, ap);
++	va_end(ap);
++	return retval;
++}
++#endif
++/*
++ * Scaled down version of vsnprintf(3).
++ */
++int
++hyp_vsnprintf(char *str, size_t size, const char *format, va_list ap)
++{
++	struct snprintf_arg info;
++	int retval;
++
++	info.str = str;
++	info.remain = size;
++	retval = hyp_kvprintf(format, snprintf_func, &info, 10, ap);
++	if (info.remain >= 1)
++		*info.str++ = '\0';
++	return retval;
++}
++
++static void
++snprintf_func(int ch, void *arg)
++{
++	struct snprintf_arg *const info = arg;
++
++	if (info->remain >= 2) {
++		*info->str++ = ch;
++		info->remain--;
++	}
++}
++#if 0
++
++/*
++ * Kernel version which takes radix argument vsnprintf(3).
++ */
++int
++vsnrprintf(char *str, size_t size, int radix, const char *format, va_list ap)
++{
++	struct snprintf_arg info;
++	int retval;
++
++	info.str = str;
++	info.remain = size;
++	retval = kvprintf(format, snprintf_func, &info, radix, ap);
++	if (info.remain >= 1)
++		*info.str++ = '\0';
++	return retval;
++}
++}
++#endif
++
++/*
++ * Put a NUL-terminated ASCII number (base <= 36) in a buffer in reverse
++ * order; return an optional length and a pointer to the last character
++ * written in the buffer (i.e., the first character of the string).
++ * The buffer pointed to by `nbuf' must have length >= MAXNBUF.
++ */
++static char *
++ksprintn(char *nbuf, uintmax_t num, int base, int *lenp, int upper)
++{
++	char *p, c;
++
++	p = nbuf;
++	*p = '\0';
++	do {
++		c = hex2ascii(num % base);
++		*++p = upper ? toupper(c) : c;
++	} while (num /= base);
++	if (lenp)
++		*lenp = p - nbuf;
++	return p;
++}
++
++/*
++ * Scaled down version of printf(3).
++ *
++ * Two additional formats:
++ *
++ * The format %b is supported to decode error registers.
++ * Its usage is:
++ *
++ *	printf("reg=%b\n", regval, "<base><arg>*");
++ *
++ * where <base> is the output base expressed as a control character, e.g.
++ * \10 gives octal; \20 gives hex.  Each arg is a sequence of characters,
++ * the first of which gives the bit number to be inspected (origin 1), and
++ * the next characters (up to a control character, i.e. a character <= 32),
++ * give the name of the register.  Thus:
++ *
++ *	kvprintf("reg=%b\n", 3, "\10\2BITTWO\1BITONE\n");
++ *
++ * would produce output:
++ *
++ *	reg=3<BITTWO,BITONE>
++ *
++ * XXX:  %D  -- Hexdump, takes pointer and separator string:
++ *		("%6D", ptr, ":")   -> XX:XX:XX:XX:XX:XX
++ *		("%*D", len, ptr, " " -> XX XX XX XX ...
++ */
++int
++hyp_kvprintf(char const *fmt, void (*func)(int, void*), void *arg, int radix, va_list ap)
++{
++#define PCHAR(c) {int cc = (c); if (func) (*func)(cc, arg); else *d++ = cc; retval++; }
++	char nbuf[MAXNBUF];
++	char *d;
++	const char *p, *percent, *q;
++	u_char *up;
++	int ch, n;
++	uintmax_t num;
++	int base, lflag, qflag, tmp, width, ladjust, sharpflag, neg, sign, dot;
++	int cflag, hflag, jflag, tflag, zflag;
++	int dwidth, upper;
++	char padc;
++	int stop = 0, retval = 0;
++
++	num = 0;
++	if (!func)
++		d = (char *) arg;
++	else
++		d = NULL;
++
++	if (fmt == NULL)
++		fmt = "(fmt null)\n";
++
++	if (radix < 2 || radix > 36)
++		radix = 10;
++
++	for (;;) {
++		padc = ' ';
++		width = 0;
++		while ((ch = (u_char)*fmt++) != '%' || stop) {
++			if (ch == '\0')
++				return retval;
++			PCHAR(ch);
++		}
++		percent = fmt - 1;
++		qflag = 0; lflag = 0; ladjust = 0; sharpflag = 0; neg = 0;
++		sign = 0; dot = 0; dwidth = 0; upper = 0;
++		cflag = 0; hflag = 0; jflag = 0; tflag = 0; zflag = 0;
++reswitch:
++		switch (ch = (u_char)*fmt++) {
++		case '.':
++			dot = 1;
++			goto reswitch;
++		case '#':
++			sharpflag = 1;
++			goto reswitch;
++		case '+':
++			sign = 1;
++			goto reswitch;
++		case '-':
++			ladjust = 1;
++			goto reswitch;
++		case '%':
++			PCHAR(ch);
++			break;
++		case '*':
++			if (!dot) {
++				width = va_arg(ap, int);
++				if (width < 0) {
++					ladjust = !ladjust;
++					width = -width;
++				}
++			} else {
++				dwidth = va_arg(ap, int);
++			}
++			goto reswitch;
++		case '0':
++			if (!dot) {
++				padc = '0';
++				goto reswitch;
++			}
++		case '1': case '2': case '3': case '4':
++		case '5': case '6': case '7': case '8': case '9':
++				for (n = 0;; ++fmt) {
++					n = n * 10 + ch - '0';
++					ch = *fmt;
++					if (ch < '0' || ch > '9')
++						break;
++				}
++			if (dot)
++				dwidth = n;
++			else
++				width = n;
++			goto reswitch;
++		case 'b':
++			num = (u_int)va_arg(ap, int);
++			p = va_arg(ap, char *);
++			for (q = ksprintn(nbuf, num, *p++, NULL, 0); *q;)
++				PCHAR(*q--);
++
++			if (num == 0)
++				break;
++
++			for (tmp = 0; *p;) {
++				n = *p++;
++				if (num & (1 << (n - 1))) {
++					PCHAR(tmp ? ',' : '<');
++					for (; (n = *p) > ' '; ++p)
++						PCHAR(n);
++					tmp = 1;
++				} else
++					for (; *p > ' '; ++p)
++						continue;
++			}
++			if (tmp)
++				PCHAR('>');
++			break;
++		case 'c':
++			PCHAR(va_arg(ap, int));
++			break;
++		case 'D':
++			up = va_arg(ap, u_char *);
++			p = va_arg(ap, char *);
++			if (!width)
++				width = 16;
++			while (width--) {
++				PCHAR(hex2ascii(*up >> 4));
++				PCHAR(hex2ascii(*up & 0x0f));
++				up++;
++				if (width)
++					for (q = p; *q; q++)
++						PCHAR(*q);
++			}
++			break;
++		case 'd':
++		case 'i':
++			base = 10;
++			sign = 1;
++			goto handle_sign;
++		case 'h':
++			if (hflag) {
++				hflag = 0;
++				cflag = 1;
++			} else
++				hflag = 1;
++			goto reswitch;
++		case 'j':
++			jflag = 1;
++			goto reswitch;
++		case 'l':
++			if (lflag) {
++				lflag = 0;
++				qflag = 1;
++			} else
++				lflag = 1;
++			goto reswitch;
++		case 'n':
++			if (jflag)
++				*(va_arg(ap, intmax_t *)) = retval;
++			else if (qflag)
++				*(va_arg(ap, quad_t *)) = retval;
++			else if (lflag)
++				*(va_arg(ap, long *)) = retval;
++			else if (zflag)
++				*(va_arg(ap, size_t *)) = retval;
++			else if (hflag)
++				*(va_arg(ap, short *)) = retval;
++			else if (cflag)
++				*(va_arg(ap, char *)) = retval;
++			else
++				*(va_arg(ap, int *)) = retval;
++			break;
++		case 'o':
++			base = 8;
++			goto handle_nosign;
++		case 'p':
++			base = 16;
++			sharpflag = (width == 0);
++			sign = 0;
++			num = (uintptr_t)va_arg(ap, void *);
++			goto number;
++		case 'q':
++			qflag = 1;
++			goto reswitch;
++		case 'r':
++			base = radix;
++			if (sign)
++				goto handle_sign;
++			goto handle_nosign;
++		case 's':
++			p = va_arg(ap, char *);
++			if (p == NULL)
++				p = "(null)";
++			if (!dot)
++				n = strlen(p);
++			else
++				for (n = 0; n < dwidth && p[n]; n++)
++					continue;
++
++			width -= n;
++
++			if (!ladjust && width > 0)
++				while (width--)
++					PCHAR(padc);
++			while (n--)
++				PCHAR(*p++);
++			if (ladjust && width > 0)
++				while (width--)
++					PCHAR(padc);
++			break;
++		case 't':
++			tflag = 1;
++			goto reswitch;
++		case 'u':
++			base = 10;
++			goto handle_nosign;
++		case 'X':
++			upper = 1;
++		case 'x':
++			base = 16;
++			goto handle_nosign;
++		case 'y':
++			base = 16;
++			sign = 1;
++			goto handle_sign;
++		case 'z':
++			zflag = 1;
++			goto reswitch;
++handle_nosign:
++			sign = 0;
++			if (jflag)
++				num = va_arg(ap, uintmax_t);
++			else if (qflag)
++				num = va_arg(ap, u_quad_t);
++			else if (tflag)
++				num = va_arg(ap, ptrdiff_t);
++			else if (lflag)
++				num = va_arg(ap, u_long);
++			else if (zflag)
++				num = va_arg(ap, size_t);
++			else if (hflag)
++				num = (u_short)va_arg(ap, int);
++			else if (cflag)
++				num = (u_char)va_arg(ap, int);
++			else
++				num = va_arg(ap, u_int);
++			goto number;
++handle_sign:
++			if (jflag)
++				num = va_arg(ap, intmax_t);
++			else if (qflag)
++				num = va_arg(ap, quad_t);
++			else if (tflag)
++				num = va_arg(ap, ptrdiff_t);
++			else if (lflag)
++				num = va_arg(ap, long);
++			else if (zflag)
++				num = va_arg(ap, ssize_t);
++			else if (hflag)
++				num = (short)va_arg(ap, int);
++			else if (cflag)
++				num = (char)va_arg(ap, int);
++			else
++				num = va_arg(ap, int);
++number:
++			if (sign && (intmax_t)num < 0) {
++				neg = 1;
++				num = -(intmax_t)num;
++			}
++			p = ksprintn(nbuf, num, base, &n, upper);
++			tmp = 0;
++			if (sharpflag && num != 0) {
++				if (base == 8)
++					tmp++;
++				else if (base == 16)
++					tmp += 2;
++			}
++			if (neg)
++				tmp++;
++
++			if (!ladjust && padc == '0')
++				dwidth = width - tmp;
++			width -= tmp + imax(dwidth, n);
++			dwidth -= n;
++			if (!ladjust)
++				while (width-- > 0)
++					PCHAR(' ');
++			if (neg)
++				PCHAR('-');
++			if (sharpflag && num != 0) {
++				if (base == 8) {
++					PCHAR('0');
++				} else if (base == 16) {
++					PCHAR('0');
++					PCHAR('x');
++				}
++			}
++			while (dwidth-- > 0)
++				PCHAR('0');
++
++			while (*p)
++				PCHAR(*p--);
++
++			if (ladjust)
++				while (width-- > 0)
++					PCHAR(' ');
++
++			break;
++		default:
++			while (percent < fmt)
++				PCHAR(*percent++);
++			/*
++			 * Since we ignore an formatting argument it is no
++			 * longer safe to obey the remaining formatting
++			 * arguments as the arguments will no longer match
++			 * the format specs.
++			 */
++			stop = 1;
++			break;
++		}
++	}
++#undef PCHAR
++}
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug/validate.c b/arch/arm64/kvm/hyp/nvhe/debug/validate.c
+new file mode 100644
+index 000000000000..7b4d73b922b7
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/nvhe/debug/validate.c
+@@ -0,0 +1,101 @@
++
++#include <linux/kernel.h>
++#include <asm/kvm_mmu.h>
++#include <asm/kvm_emulate.h>
++#include <nvhe/mm.h>
++#include <nvhe/pkvm.h>
++#include <nvhe/mem_protect.h>
++#include <nvhe/spinlock.h>
++#include <hyp/hyp_print.h>
++
++static DEFINE_HYP_SPINLOCK(dbg_lock);
++
++static bool at_debugstop;
++int xdbg = 1;
++int gdb_initialized = 0;
++
++
++void init_gdb(void)
++{
++	const char path[] = "../../linux-host/arch/arm64/kvm/hyp/nvhe/el2.bin";
++
++	hyp_print("\nWelcome to pkvm debugging by gdb\n");
++	hyp_print("Hit ^C to gdb window, and enter following  commands:\n");
++	hyp_print("symbol-file\n");
++	hyp_print("add-symbol-file %s -s .bss 0x%llx -s .text 0x%llx\n",
++		   path,
++		   __hyp_bss_start,
++		   ((u64)__hyp_text_start + 0x2000) & ~0xfff);
++	hyp_print("symbol-file ../../linux-host/vmlinux\n");
++	hyp_print("\nthen you can set breakpoints to EL2\n");
++
++	hyp_print("to continue, enter the commands:\n");
++	hyp_print("p openlock(0)\n");
++	hyp_print("c\n");
++	hyp_print("c\n");
++
++	hyp_spin_lock(&dbg_lock);
++
++	gdb_initialized = 1;
++}
++void do_debugstop(void)
++{	//const char path[] = "../../linux-host/arch/arm64/kvm/hyp/nvhe/el2.bin";
++
++	if (unlikely(at_debugstop)) {
++		hyp_print("stop at debugstop");
++		if (!gdb_initialized) {
++			init_gdb();
++		} else {
++			hyp_print("to continue, enter the commands:\n");
++			hyp_print("p openlock(0)\n");
++			hyp_spin_lock(&dbg_lock);
++
++		}
++	}
++}
++
++int openlock(void)
++{
++	hyp_spin_unlock(&dbg_lock);
++	return 0;
++
++}
++int debugstop(void)
++{
++	if (!hyp_spin_is_locked(&dbg_lock))
++		hyp_spin_lock(&dbg_lock);
++	at_debugstop = true;
++	return 0;
++}
++
++int debugstart(void)
++{
++	hyp_spin_unlock(&dbg_lock);
++	at_debugstop = false;
++	return 0;
++}
++int attach_gdb(u64 param)
++{
++	//const char path[] = "../../linux-host/arch/arm64/kvm/hyp/nvhe/el2.bin";
++
++	if (param == 2) {
++		//testaa tämä:
++		if (!hyp_spin_is_locked(&dbg_lock))
++			hyp_spin_lock(&dbg_lock);
++		init_gdb();
++	}
++	else if (param)
++		debugstop();
++	else
++		debugstart();
++
++	return 0;
++}
++//int hyp_count_shared(int guest);
++
++int do_dbg(u64 param)
++{
++	hyp_print("do_dbg %llx\n",param);
++	//hyp_count_shared(param);
++	return 0;
++}
+diff --git a/arch/arm64/kvm/hyp/nvhe/setup.c b/arch/arm64/kvm/hyp/nvhe/setup.c
+index fb942785388e..19a5b421cd38 100644
+--- a/arch/arm64/kvm/hyp/nvhe/setup.c
++++ b/arch/arm64/kvm/hyp/nvhe/setup.c
+@@ -37,6 +37,22 @@ static void *ffa_proxy_pages;
+ static struct kvm_pgtable_mm_ops pkvm_pgtable_mm_ops;
+ static struct hyp_pool hpool;
+ 
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++unsigned long arm64_kvm_hyp_debug_uart_addr;
++static int pre_create_hyp_debug_uart_mapping(void)
++{
++	phys_addr_t base = CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR;
++	unsigned long haddr;
++
++	if (__pkvm_create_private_mapping(base, PAGE_SIZE,
++					  PAGE_HYP_DEVICE,
++					  &arm64_kvm_hyp_debug_uart_addr))
++		return -1;
++
++	return 0;
++}
++#endif
++
+ static int divide_memory_pool(void *virt, unsigned long size)
+ {
+ 	unsigned long nr_pages;
+@@ -198,6 +214,12 @@ static int recreate_hyp_mappings(phys_addr_t phys, unsigned long size,
+ 	if (ret)
+ 		return ret;
+ 
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++	ret = pre_create_hyp_debug_uart_mapping();
++	if (ret)
++		return ret;
++#endif
++
+ 	return 0;
+ }
+ 
+diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
+index 49fda87e75c7..d247418ec5b2 100644
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -590,6 +590,45 @@ static int __create_hyp_private_mapping(phys_addr_t phys_addr, size_t size,
+ 	return ret;
+ }
+ 
++
++
++//***************
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++extern unsigned long __kvm_nvhe_arm64_kvm_hyp_debug_uart_addr;
++
++void __init kvm_hyp_debug_uart_set_basep(struct alt_instr *alt,
++					 __le32 *origptr, __le32 *updptr,
++					 int nr_inst)
++{
++	int i;
++	u64 addr = (u64)kvm_ksym_ref(&__kvm_nvhe_arm64_kvm_hyp_debug_uart_addr);
++
++	BUG_ON(nr_inst != 4);
++
++	for (i = 0; i < 4; ++i) {
++		u32 insn = le32_to_cpu(origptr[i]);
++
++		insn = aarch64_insn_encode_immediate(AARCH64_INSN_IMM_16,
++						     insn,
++						     addr & 0xffff);
++		BUG_ON(insn == AARCH64_BREAK_FAULT);
++		updptr[i] = cpu_to_le32(insn);
++		addr >>= 16;
++	}
++}
++
++static int create_hyp_debug_uart_mapping(void)
++{
++	if (is_kernel_in_hyp_mode())
++		return -EBUSY;
++	//printk("create_hyp_debug_uart_mapping %llx %llx\n",CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR,&__kvm_nvhe_arm64_kvm_hyp_debug_uart_addr);
++	return __create_hyp_private_mapping(CONFIG_KVM_ARM_HYP_DEBUG_UART_ADDR,
++					    PAGE_SIZE,
++					    &__kvm_nvhe_arm64_kvm_hyp_debug_uart_addr,
++					    PAGE_HYP_DEVICE);
++}
++#endif
++//*****************
+ /**
+  * create_hyp_io_mappings - Map IO into both kernel and HYP
+  * @phys_addr:	The physical start address which gets mapped
+@@ -1970,6 +2009,9 @@ int kvm_mmu_init(u32 *hyp_va_bits)
+ 		goto out_destroy_pgtable;
+ 
+ 	io_map_base = hyp_idmap_start;
++#ifdef CONFIG_KVM_ARM_HYP_DEBUG_UART
++	create_hyp_debug_uart_mapping();
++#endif
+ 	return 0;
+ 
+ out_destroy_pgtable:
+-- 
+2.34.1
+
