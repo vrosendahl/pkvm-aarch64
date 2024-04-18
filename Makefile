@@ -85,6 +85,15 @@ target-crosvm-distclean:
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER)
 
+guestimage2:
+	@sudo -E ./scripts/create_guestimg2.sh $(USER) 192.168.11. pkvm-guest-2
+
+guestimage3:
+	@sudo -E ./scripts/create_guestimg2.sh $(USER) 192.168.12. pkvm-guest-3
+
+guestimage4:
+	@sudo -E ./scripts/create_guestimg2.sh $(USER) 192.168.13. pkvm-guest-4
+
 hostimage:
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
