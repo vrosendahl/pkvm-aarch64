@@ -14,6 +14,12 @@ What currently works, execute the following make targets in order:
 
 * `make guestimage`
 
+* `make guestimage2`. This is optional. It provides a second guest image with different IP address and hostname. It depends on the guestimage target.
+
+* `make guestimage3`. This is optional. It provides a third guest image with different IP address and hostname. It depends on the guestimage target.
+
+* `make guestimage4`. This is optional. It provides a fourth guest image with different IP address and hostname. It depends on the guestimage target.
+
 * `make DEBUGGER=1 run`. This will boot the pkvm host image with the host kernel in qemu with the gdb server enabled.
 
 * `make gdb`. This will start the gdb and connect it to the qemu gdb server. This should be executed in another terminal window.
@@ -22,7 +28,7 @@ The `make host-kernel` and `make target-crosvm` targets can be executed in any o
 
 The default user is `ubuntu`. No password is required. The hostimage has a script, `run-crosvm.sh`, which can be used to run the guestimage with crosvm, also doing the necessary configuration of networking.
 
-There is also a `make all` target that will build everything in the right order.
+There is also a `make all` target that will build everything in the right order. However, it will only build the first guestimage. If the additional guest images are wanted, then they must be built by adding an extra `make guestimage2', `make guestimage3`, or `make guestimage4`.
 
 What is missing:
 
