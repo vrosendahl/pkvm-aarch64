@@ -1,6 +1,6 @@
-From 8ab79b374da4b7f7efa218a1a7054ff87f3adc39 Mon Sep 17 00:00:00 2001
+From 0c513f1701aeebf0f41d2f1307396796e3ef6ce0 Mon Sep 17 00:00:00 2001
 From: Grigoriy Romanov <grigoriy.romanov@unikie.com>
-Date: Tue, 16 Apr 2024 16:29:03 +0300
+Date: Tue, 23 Apr 2024 18:35:23 +0300
 Subject: [PATCH] Implement initial version of a hypervisor ram log
 
 Ramlog allows to store data that reveals a hypervisor work
@@ -50,22 +50,22 @@ index f74f8682a650..761fd2acdaec 100644
  	default 0x0900000
 +
 +config KVM_ARM_NVHE_HYP_RAMLOG
-+    bool "Presense of a hypervisor ramlog"
-+    depends on KVM_ARM_HYP_DEBUG_UART
-+    default y
-+    help
-+      Hypervisor ramlog collects register dumps and other data separately from
-+      a kernel log. Hypervisor log is encrypted with a stream cipher.
++	bool "Presense of a hypervisor ramlog"
++	depends on KVM_ARM_HYP_DEBUG_UART
++	default y
++	help
++	  Hypervisor ramlog collects register dumps and other data separately from
++	  a kernel log. Hypervisor log is encrypted with a stream cipher.
  endif # VIRTUALIZATION
 diff --git a/arch/arm64/kvm/hyp/include/nvhe/chacha.h b/arch/arm64/kvm/hyp/include/nvhe/chacha.h
 new file mode 100644
-index 000000000000..27abb9a59c1e
+index 000000000000..ecae6926c609
 --- /dev/null
 +++ b/arch/arm64/kvm/hyp/include/nvhe/chacha.h
 @@ -0,0 +1,47 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
-+#ifndef _KVM_ARM_CRYPTO_H
-+#define _KVM_ARM_CRYPTO_H
++#ifndef _KVM_ARM_NVHE_CHACHA_H
++#define _KVM_ARM_NVHE_CHACHA_H
 +
 +#define CHACHA_KEY_SIZE		32
 +#define CHACHA_BLOCK_SIZE	64
@@ -109,7 +109,7 @@ index 000000000000..27abb9a59c1e
 +	state[15] = get_unaligned_le32(iv + 12);
 +}
 +
-+#endif //_KVM_ARM_CRYPTO_H
++#endif //_KVM_ARM_NVHE_CHACHA_H
 diff --git a/arch/arm64/kvm/hyp/include/nvhe/dump_regs.h b/arch/arm64/kvm/hyp/include/nvhe/dump_regs.h
 new file mode 100644
 index 000000000000..20b26c7aa18d
@@ -153,7 +153,7 @@ index 000000000000..6e00d0fdf82f
 +	__extension__({                                        \
 +		uint64_t value;                                    \
 +		__asm__ __volatile__("mrs	%0, " #r               \
-+				     : "=r"(value));                       \
++					 : "=r"(value));                       \
 +		value;                                             \
 +	})
 +
@@ -204,7 +204,7 @@ index 62de0aae2825..941240273429 100644
  	 hyp-main.o hyp-smp.o psci-relay.o early_alloc.o page_alloc.o \
  	 cache.o setup.o mm.o mem_protect.o sys_regs.o pkvm.o stacktrace.o ffa.o iommu.o \
  	 serial.o
--hyp-obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o 
+-hyp-obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o
 +hyp-obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o
  hyp-obj-y += debug/print.o debug/subr_prf.o debug/strlen.o \
  	 ../fpsimd.o ../hyp-entry.o ../exception.o ../pgtable.o
@@ -215,11 +215,11 @@ index 62de0aae2825..941240273429 100644
 +											 crypto/chacha.o \
 +											 ramlog.o
  hyp-obj-y += $(lib-objs)
- 
+
  $(obj)/hyp.lds: $(src)/hyp.lds.S FORCE
 diff --git a/arch/arm64/kvm/hyp/nvhe/crypto/chacha.c b/arch/arm64/kvm/hyp/nvhe/crypto/chacha.c
 new file mode 100644
-index 000000000000..fab3007d4bd9
+index 000000000000..1a63a559e4d5
 --- /dev/null
 +++ b/arch/arm64/kvm/hyp/nvhe/crypto/chacha.c
 @@ -0,0 +1,169 @@
@@ -227,7 +227,7 @@ index 000000000000..fab3007d4bd9
 +#include <linux/string.h>
 +#include <linux/bitops.h>
 +
-+#include <hyp/crypto.h>
++#include <nvhe/chacha.h>
 +#include <asm-generic/unaligned.h>
 +#include <asm-generic/bug.h>
 +
@@ -287,8 +287,8 @@ index 000000000000..fab3007d4bd9
 +				  unsigned int size)
 +{
 +	if (IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) &&
-+	    __builtin_constant_p(size) &&
-+	    (size % sizeof(unsigned long)) == 0) {
++		__builtin_constant_p(size) &&
++		(size % sizeof(unsigned long)) == 0) {
 +		unsigned long *d = (unsigned long *)dst;
 +		unsigned long *s1 = (unsigned long *)src1;
 +		unsigned long *s2 = (unsigned long *)src2;
@@ -411,13 +411,13 @@ index 000000000000..d87bbc2045ad
 +
 +void debug_dump_csrs(void)
 +{
-+    hyp_ramlog_reg(TTBR0_EL2);
-+    hyp_ramlog_reg(TTBR0_EL1);
-+    hyp_ramlog_reg(TTBR1_EL1);
-+    hyp_ramlog_reg(ESR_EL2);
-+    hyp_ramlog_reg(HPFAR_EL2);
-+    hyp_ramlog_reg(FAR_EL2);
-+    hyp_ramlog_reg(VTTBR_EL2);
++	hyp_ramlog_reg(TTBR0_EL2);
++	hyp_ramlog_reg(TTBR0_EL1);
++	hyp_ramlog_reg(TTBR1_EL1);
++	hyp_ramlog_reg(ESR_EL2);
++	hyp_ramlog_reg(HPFAR_EL2);
++	hyp_ramlog_reg(FAR_EL2);
++	hyp_ramlog_reg(VTTBR_EL2);
 +}
 diff --git a/arch/arm64/kvm/hyp/nvhe/ramlog.c b/arch/arm64/kvm/hyp/nvhe/ramlog.c
 new file mode 100644
@@ -440,34 +440,34 @@ index 000000000000..e6f44cb008e2
 +/* keys should to be gotten from keystorage when it will be implemented */
 +u32 chacha_state[16] = {0};
 +u32 chacha_key[8] = {
-+    0x09080706, 0x10203040, 0x05060708, 0x50607080,
-+    0xa9a8a7a6, 0x1a2a3a4a, 0xa5a6a7a8, 0x5a6a7a8a
++	0x09080706, 0x10203040, 0x05060708, 0x50607080,
++	0xa9a8a7a6, 0x1a2a3a4a, 0xa5a6a7a8, 0x5a6a7a8a
 +};
 +u8 chacha_iv[16] = {
-+    0x10, 0x0f, 0x02, 0xe0,
-+    0x30, 0x0d, 0x04, 0xc0,
-+    0x50, 0x0b, 0x06, 0xa0,
-+    0x70, 0x09, 0x08, 0x80,
++	0x10, 0x0f, 0x02, 0xe0,
++	0x30, 0x0d, 0x04, 0xc0,
++	0x50, 0x0b, 0x06, 0xa0,
++	0x70, 0x09, 0x08, 0x80,
 +};
 +
 +struct hyp_timestamp hts = {0};
 +
 +static inline u64 getcntpct_el0(void)
 +{
-+    u64 res;
++	u64 res;
 +
-+    isb();
-+    asm volatile("mrs %0, cntpct_el0" : "=r" (res) :: "memory");
-+    return res;
++	isb();
++	asm volatile("mrs %0, cntpct_el0" : "=r" (res) :: "memory");
++	return res;
 +}
 +
 +static inline u64 getcntfrq_el0(void)
 +{
-+    u64 res;
++	u64 res;
 +
-+    isb();
-+    asm volatile("mrs %0, cntfrq_el0" : "=r" (res) :: "memory");
-+    return res;
++	isb();
++	asm volatile("mrs %0, cntfrq_el0" : "=r" (res) :: "memory");
++	return res;
 +}
 +
 +/* poor implementation of the timer from cntpct_el0
@@ -475,165 +475,165 @@ index 000000000000..e6f44cb008e2
 + */
 +inline void gettimestamp(struct hyp_timestamp *hts)
 +{
-+    int i;
-+    u64 nsec = 0, rem = 0;
-+    u64 clks = getcntpct_el0();
-+    u64 freq = getcntfrq_el0();
++	int i;
++	u64 nsec = 0, rem = 0;
++	u64 clks = getcntpct_el0();
++	u64 freq = getcntfrq_el0();
 +
-+    hts->sec = clks/freq;
-+    rem = clks % freq;
-+    for (i = 0; i < 10; i++) {
-+        freq /= 10;
-+        nsec += rem / freq;
-+        rem = rem % freq;
-+        nsec *= 10;
-+    }
-+    hts->nsec = nsec / 10;
++	hts->sec = clks/freq;
++	rem = clks % freq;
++	for (i = 0; i < 10; i++) {
++		freq /= 10;
++		nsec += rem / freq;
++		rem = rem % freq;
++		nsec *= 10;
++	}
++	hts->nsec = nsec / 10;
 +}
 +
 +inline char *rlogp_head(void)
 +{
-+    return __rlog;
++	return __rlog;
 +}
 +
 +/* returns a pointer to 64-byte entry
 + */
 +inline char *rlogp_entry(int entry)
 +{
-+    return &__rlog[entry * LOG_ENTRY_LENGTH];
++	return &__rlog[entry * LOG_ENTRY_LENGTH];
 +}
 +
 +inline int rlog_cur_entry(void)
 +{
-+    return __rp / LOG_ENTRY_LENGTH;
++	return __rp / LOG_ENTRY_LENGTH;
 +}
 +
 +static void __decrypt_log_data(void)
 +{
-+     /* temporarily initial chacha state written
-+      * to the first entry of the log, use it for decrytion and skip
-+      * during decryption itself
-+      */
-+     int log_len = rlog_cur_entry() * LOG_ENTRY_LENGTH;
++	 /* temporarily initial chacha state written
++	  * to the first entry of the log, use it for decrytion and skip
++	  * during decryption itself
++	  */
++	int log_len = rlog_cur_entry() * LOG_ENTRY_LENGTH;
 +
-+     chacha_crypt_generic((u32 *) rlogp_head(),
-+                          rlogp_entry(1),
-+                          rlogp_entry(1),
-+                          log_len,
-+                          20);
-+     unvalid_log_chacha();
++	 chacha_crypt_generic((u32 *) rlogp_head(),
++					      rlogp_entry(1),
++					      rlogp_entry(1),
++					      log_len,
++					      20);
++	 unvalid_log_chacha();
 +}
 +
 +static void __encrypt_log_data(void)
 +{
-+    if (__rp > LOG_ENTRY_LENGTH && is_log_chacha_initialized()) {
-+        chacha_crypt_generic(chacha_state,
-+                             rlogp_entry(1),
-+                             rlogp_entry(1),
-+                             rlog_cur_entry() * LOG_ENTRY_LENGTH,
-+                             20);
-+    }
++	if (__rp > LOG_ENTRY_LENGTH && is_log_chacha_initialized()) {
++		chacha_crypt_generic(chacha_state,
++							rlogp_entry(1),
++							rlogp_entry(1),
++							rlog_cur_entry() * LOG_ENTRY_LENGTH,
++							20);
++	}
 +}
 +
 +/* generate chacha init state and encrypt log data of there is presence of it */
 +static inline void log_chacha_init(void)
 +{
-+    chacha_init_generic(chacha_state, chacha_key, chacha_iv);
-+    /* put whole chacha's init state into the first log entry */
-+    /* TODO: crypt it with ECDH shared secret */
-+    memcpy(rlogp_head(), chacha_state, 64);
-+    if (__rp < LOG_ENTRY_LENGTH)
-+        __rp = LOG_ENTRY_LENGTH;
-+    else
-+        __encrypt_log_data();
++	chacha_init_generic(chacha_state, chacha_key, chacha_iv);
++	/* put whole chacha's init state into the first log entry */
++	/* TODO: crypt it with ECDH shared secret */
++	memcpy(rlogp_head(), chacha_state, 64);
++	if (__rp < LOG_ENTRY_LENGTH)
++		__rp = LOG_ENTRY_LENGTH;
++	else
++		__encrypt_log_data();
 +}
 +
 +static inline bool is_log_chacha_initialized(void)
 +{
-+    /* TODO: find more proper way checking valid chacha state */
-+    if (chacha_state[0] == 0 && chacha_state[1] == 0)
-+        return false;
-+    return true;
++	/* TODO: find more proper way checking valid chacha state */
++	if (chacha_state[0] == 0 && chacha_state[1] == 0)
++		return false;
++	return true;
 +}
 +
 +static inline void log_chacha_check_and_init(void)
 +{
-+    if (!is_log_chacha_initialized())
-+        log_chacha_init();
++	if (!is_log_chacha_initialized())
++		log_chacha_init();
 +}
 +
 +static inline void unvalid_log_chacha(void)
 +{
-+    chacha_state[0] = 0;
-+    chacha_state[1] = 0;
++	chacha_state[0] = 0;
++	chacha_state[1] = 0;
 +}
 +
 +/* fill log entry with padding to make it 64byte multiple sized */
 +static inline void __align_log_entry(void)
 +{
-+    if (__rlog[__rp - 1] == '\n')
-+        __rp--;
-+    for (; __rp % LOG_ENTRY_LENGTH != 0; __rp++)
-+        __rlog[__rp] = ' ';
-+    __rlog[__rp - 2] = '.';
-+    __rlog[__rp - 1] = '\0';
++	if (__rlog[__rp - 1] == '\n')
++		__rp--;
++	for (; __rp % LOG_ENTRY_LENGTH != 0; __rp++)
++		__rlog[__rp] = ' ';
++	__rlog[__rp - 2] = '.';
++	__rlog[__rp - 1] = '\0';
 +}
 +
 +
 +void hyp_ramlog(const char *fmt, ...)
 +{
-+    va_list args;
-+    int count = 0;
-+    unsigned int head_to_crypt, written_entries;
++	va_list args;
++	int count = 0;
++	unsigned int head_to_crypt, written_entries;
 +
-+    /* if log array contains less than 2*LOG_ENTRY_LENGTH - reinit log
-+     */
-+    if ((__rp + 2 * LOG_ENTRY_LENGTH) >= PAGE_SIZE) {
-+        unvalid_log_chacha();
-+        __rp = 0;
-+    }
++	/* if log array contains less than 2*LOG_ENTRY_LENGTH - reinit log
++	 */
++	if ((__rp + 2 * LOG_ENTRY_LENGTH) >= PAGE_SIZE) {
++		unvalid_log_chacha();
++		__rp = 0;
++	}
 +
-+    log_chacha_check_and_init();
++	log_chacha_check_and_init();
 +
-+    va_start(args, fmt);
-+    count = hyp_vsnprintf(&__rlog[__rp], 2 * LOG_ENTRY_LENGTH, fmt, args);
-+    va_end(args);
++	va_start(args, fmt);
++	count = hyp_vsnprintf(&__rlog[__rp], 2 * LOG_ENTRY_LENGTH, fmt, args);
++	va_end(args);
 +
-+    __rp += count;
++	__rp += count;
 +
-+    /* align entry to be multiple of LOG_ENTRY_LENGTH
-+     * __rp will be moved to be multiple of 64
-+     */
-+    __align_log_entry();
++	/* align entry to be multiple of LOG_ENTRY_LENGTH
++	 * __rp will be moved to be multiple of 64
++	 */
++	__align_log_entry();
 +
-+    /* crypt new log entry(ies) in place
-+     */
-+    written_entries = count / LOG_ENTRY_LENGTH + 1;
-+    head_to_crypt = rlog_cur_entry() - written_entries;
-+    chacha_crypt_generic(chacha_state,
-+                         rlogp_entry(head_to_crypt),
-+                         rlogp_entry(head_to_crypt),
-+                         written_entries * LOG_ENTRY_LENGTH,
-+                         20);
++	/* crypt new log entry(ies) in place
++	 */
++	written_entries = count / LOG_ENTRY_LENGTH + 1;
++	head_to_crypt = rlog_cur_entry() - written_entries;
++	chacha_crypt_generic(chacha_state,
++					     rlogp_entry(head_to_crypt),
++					     rlogp_entry(head_to_crypt),
++					     written_entries * LOG_ENTRY_LENGTH,
++					     20);
 +
-+    /* to remove: For to read string from a debugger */
-+    //hyp_print("!!! __rlog addr is - 0x%016llx\n", __rlog);
++	/* to remove: For to read string from a debugger */
++	//hyp_print("!!! __rlog addr is - 0x%016llx\n", __rlog);
 +}
 +
 +/* to be removed - for debug purposes
 + */
 +void print_rlog(void)
 +{
-+    int i = rlog_cur_entry();
++	int i = rlog_cur_entry();
 +
-+    __decrypt_log_data();
-+    for (; i > 1; i--)
-+        hyp_print("%s\n", rlogp_entry(rlog_cur_entry() - i + 1));
++	__decrypt_log_data();
++	for (; i > 1; i--)
++		hyp_print("%s\n", rlogp_entry(rlog_cur_entry() - i + 1));
 +
-+    /* after decryption current chacha state is invalid. reinit chacha
-+     * if there is data it will be encrypted again
-+     */
-+    log_chacha_init();
++	/* after decryption current chacha state is invalid. reinit chacha
++	 * if there is data it will be encrypted again
++	 */
++	log_chacha_init();
 +}
 +
 +#endif /* CONFIG_KVM_ARM_NVHE_HYP_RAMLOG */
@@ -644,23 +644,23 @@ index 19a5b421cd38..efcf490384a4 100644
 @@ -21,6 +21,9 @@
  #include <nvhe/serial.h>
  #include <nvhe/trap_handler.h>
- 
+
 +#include <hyp/hyp_print.h>
 +#include <nvhe/dump_regs.h>
 +
  unsigned long hyp_nr_cpus;
- 
+
  phys_addr_t pvmfw_base;
 @@ -439,6 +442,9 @@ void __noreturn __pkvm_init_finalise(void)
  		goto out;
- 
+
  	pkvm_hyp_vm_table_init(vm_table_base);
 +
-+    debug_dump_csrs();
-+    print_rlog();
++	debug_dump_csrs();
++	print_rlog();
  out:
  	/*
  	 * We tail-called to here from handle___pkvm_init() and will not return,
--- 
-2.43.0
+--
+2.44.0
 
