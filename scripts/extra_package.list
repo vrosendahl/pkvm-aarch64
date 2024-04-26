@@ -16,3 +16,4 @@ curl
 pciutils
 bonnie++
 numactl
+htop
