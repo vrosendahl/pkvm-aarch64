@@ -32,8 +32,7 @@ unset WARNINGS
 unset DEFINES
 
 export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
-export CHROOTDIR=$BASE_DIR/oss/ubuntu
-export UBUNTUTEMPLATE=$BASE_DIR/oss/ubuntu-template
+export CHROOTDIR=$BASE_DIR/oss/ubuntu-template
 
 NJOBS_MAX=8
 NJOBS=`nproc`
@@ -69,41 +68,37 @@ do_unmount_all()
 do_clean()
 {
 	do_unmount_all
-	cd $BASE_DIR/crosvm; sudo git clean -xfd || true
 }
 
 do_distclean()
 {
 	do_unmount_all
-	cd $BASE_DIR/crosvm; sudo git clean -xfd || true
 	sudo rm -rf $CHROOTDIR
 }
 
 do_sysroot()
 {
-	mkdir -p $CHROOTDIR/build
+	mkdir -p $CHROOTDIR
 	if [ -e $CHROOTDIR/bin/bash ]; then
 		sudo mount --bind /dev $CHROOTDIR/dev
 		sudo mount -t proc none $CHROOTDIR/proc
 		return;
 	fi
 
-	sudo tar -C $UBUNTUTEMPLATE -cf - ./|tar -C $CHROOTDIR -xf -
 	cd $CHROOTDIR
+	wget -c $UBUNTU_BASE
+	sudo tar --numeric-owner -xf `basename $UBUNTU_BASE`
 	sudo mount --bind /dev $CHROOTDIR/dev
 	sudo mount -t proc none $CHROOTDIR/proc
-}
-
-do_crosvm()
-{
-	#
-	# Build always
-	#
-	mkdir -p $CHROOTDIR/build/crosvm
-	sudo mount --bind $BASE_DIR/crosvm $CHROOTDIR/build/crosvm
-	cd $CHROOTDIR/build/crosvm
-
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/crosvm; cargo build --verbose -j $NJOBS --features=gdb; install target/debug/crosvm /usr/bin"
+	echo "nameserver 8.8.8.8"|sudo tee $CHROOTDIR/etc/resolv.conf > /dev/null
+	sudo chown 0:0 $CHROOTDIR/etc/resolv.conf
+	sudo cp $QEMU_USER usr/bin
+	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get update
+	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y dist-upgrade
+	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y install $PKGLIST
+#	sudo -E chroot $CHROOTDIR update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10
+#	sudo -E chroot $CHROOTDIR update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10
+	rm `basename $UBUNTU_BASE`
 }
 
 
@@ -119,7 +114,6 @@ fi
 trap do_unmount_all SIGHUP SIGINT SIGTERM EXIT
 
 do_sysroot
-do_crosvm
 cd $BASE_DIR
 
 echo "All ok!"

@@ -129,9 +129,9 @@ echo "Modifying network configuration.."
 mount --bind /dev tmp/dev
 mount -t proc none tmp/proc
 
-# This is not needed but better leave it here in case we ever want to run some
-# dpkg stuff in chroot
 export DEBIAN_FRONTEND=noninteractive
+rm -f tmp/etc/ssh/ssh_host_*
+sudo -E chroot tmp dpkg-reconfigure openssh-server
 
 # We must replace the subnet 192.168.10.x in the original file with
 # 192.168.11.x because the two guests can't use the same subnet

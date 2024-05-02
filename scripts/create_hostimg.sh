@@ -4,8 +4,6 @@ export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH:/usr/sbin
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
-UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
-UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
 QEMU_USER=$BASE_DIR/oss/ubuntu/usr/bin/qemu-aarch64-static
 QEMU_HOST=$BASE_DIR/oss/ubuntu/usr/bin/qemu-system-aarch64
 QEMU_VIRTIO_ROM=$BASE_DIR/oss/ubuntu/usr/share/qemu/efi-virtio.rom
@@ -14,11 +12,12 @@ CPUS=`nproc`
 
 USERNAME=$1
 CURDIR=$PWD
-UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22`
 EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuhost.qcow2
-OUTDIR=$BASE_DIR/images/host
+IMAGESDIR=$BASE_DIR/images
+OUTDIR=$IMAGESDIR/host
+UBUNTUTEMPLATE=$BASE_DIR/oss/ubuntu-template
 SIZE=20G
 
 do_unmount()
@@ -44,21 +43,25 @@ do_cleanup()
 		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
 	fi
 	rmmod nbd
-	rm -rf tmp `basename $UBUNTU_BASE`
+	rm -rf tmp $OUTFILE
 }
 
 usage() {
 	echo "$0 -o <output directory> -s <image size> | -u"
 }
 
+if [ ! -f $UBUNTUTEMPLATE/bin/bash ];then
+	echo "Could not find an Ubuntu system at ${UBUNTUTEMPLATE}!"
+	echo "Did you remember to run make ubuntu-template?"
+	exit 1
+fi
+
 trap do_cleanup SIGHUP SIGINT SIGTERM EXIT
 
-while getopts "h?u:o:s:" opt; do
+while getopts "h?o:s:" opt; do
 	case "$opt" in
 	h|\?)	usage
 		exit 0
-		;;
-	u)	UBUNTU_BASE=$UBUNTU_UNSTABLE
 		;;
 	o)	OUTDIR=$OPTARG
 		;;
@@ -75,13 +78,14 @@ sync
 
 echo "Formatting & downloading.."
 mkfs.ext4 /dev/nbd0p1
-wget -c $UBUNTU_BASE
 sync
 
-echo "Extracting ubuntu.."
+echo "Copying ubuntu from template.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
-tar xf `basename $UBUNTU_BASE` -C tmp
+sudo tar -C $UBUNTUTEMPLATE -cf - ./|tar -C tmp -xf -
+
+
 
 if [ ! -f $QEMU_USER ] || [ ! -f $QEMU_HOST ] || [ ! -f $QEMU_VIRTIO_ROM ];then
 	if [ ! -f $CROSVM ];then
@@ -114,13 +118,13 @@ mount -t proc none tmp/proc
 echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
-sudo -E chroot tmp apt-get -y dist-upgrade
-sudo -E chroot tmp apt-get -y install $PKGLIST
 sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
+rm -f tmp/etc/ssh/ssh_host_*
+sudo -E chroot tmp dpkg-reconfigure openssh-server
 
 cat >>  tmp/etc/network/interfaces << EOF
 auto lo
@@ -161,6 +165,7 @@ sudo -E chroot tmp chown ubuntu:ubuntu /home/ubuntu/run-crosvm.sh
 if [ ! -d $OUTDIR ]; then
 	echo "Creating output dir.."
 	mkdir -p $OUTDIR
+	chown -R $USERNAME.$USERNAME $IMAGESDIR
 fi
 
 mv $OUTFILE $OUTDIR

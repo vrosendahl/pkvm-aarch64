@@ -1,10 +1,12 @@
 include core/vars.mk
 
-DIRS := tools host-kernel target-crosvm hostimage guest-kernel guestimage
+DIRS := tools host-kernel ubuntu-template target-crosvm hostimage guest-kernel guestimage
 
 all: $(DIRS)
 
-clean: host-kernel-clean guest-kernel-clean target-crosvm-clean tools-clean
+clean: host-kernel-clean ubuntu-template-clean guest-kernel-clean target-crosvm-clean tools-clean
+
+distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-clean target-crosvm-distclean tools-clean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
@@ -41,7 +43,7 @@ guest-kernel-clean:
 
 guest-kernel-distclean:
 	@./scripts/guest-kernel-patch-fiddle.sh clean
-	cd $(GUEST_KERNEL_DIR); git xlean -xfd
+	cd $(GUEST_KERNEL_DIR); git clean -xfd
 
 host-kernel:
 	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) qemu_defconfig Image modules
@@ -53,7 +55,16 @@ host-kernel-clean:
 	@rm -rf $(HOST_KERNEL_DIR)/drivers/video/tegra
 
 host-kernel-distclean:
-	cd $(HOST_KERNEL_DIR); git xlean -xfd
+	cd $(HOST_KERNEL_DIR); git clean -xfd
+
+ubuntu-template:
+	@./scripts/ubuntu-template.sh
+
+ubuntu-template-clean:
+	@./scripts/ubuntu-template.sh clean
+
+ubuntu-template-distclean:
+	@./scripts/ubuntu-template.sh distclean
 
 qemu:
 	@./scripts/build-qemu.sh build
