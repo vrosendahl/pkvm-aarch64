@@ -6,6 +6,9 @@ What currently works, execute the following make targets in order:
 
 * `make host-kernel`
 
+* `make ubuntu-template`. This creates an Ubuntu system that is reused by the
+  hostimage and guestimae targets.
+
 * `make target-crosvm`
 
 * `make hostimage`
