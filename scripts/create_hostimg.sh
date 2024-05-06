@@ -125,6 +125,8 @@ sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
 rm -f tmp/etc/ssh/ssh_host_*
 sudo -E chroot tmp dpkg-reconfigure openssh-server
+rm -f tmp/var/cache/apt/archives/*.deb || true
+rm -f tmp/var/cache/apt/archives/*.ddeb || true
 
 cat >>  tmp/etc/network/interfaces << EOF
 auto lo

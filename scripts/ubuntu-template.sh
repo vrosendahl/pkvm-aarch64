@@ -63,6 +63,8 @@ do_unmount_all()
 	do_unmount $CHROOTDIR/build/crosvm
 	do_unmount $CHROOTDIR/proc
 	do_unmount $CHROOTDIR/dev
+	sudo rm -f $CHROOTDIR/var/cache/apt/archives/*.deb || true
+	sudo rm -f $CHROOTDIR/var/cache/apt/archives/*.ddeb || true
 }
 
 do_clean()
@@ -82,6 +84,8 @@ do_sysroot()
 	if [ -e $CHROOTDIR/bin/bash ]; then
 		sudo mount --bind /dev $CHROOTDIR/dev
 		sudo mount -t proc none $CHROOTDIR/proc
+		DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get update
+		DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y dist-upgrade
 		return;
 	fi
 
