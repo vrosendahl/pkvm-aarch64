@@ -131,6 +131,11 @@ if [ "x$1" = "xclean" ]; then
 	exit 0
 fi
 
+if test -e $TOOLDIR/usr/bin/aarch64-linux-gnu-gdb && test -e $TOOLDIR/usr/bin/aarch64-linux-gnu-gcc ;then
+	echo "Tools alread seem to exist, skpping!"
+	exit 0
+fi
+
 binutils-gdb
 kernel_headers_host
 glibc
