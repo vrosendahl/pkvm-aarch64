@@ -111,4 +111,7 @@ guestimage4:
 hostimage:
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
+guest2host:
+	@sudo -E ./scripts/add_guest2host.sh $(USER)
+
 .PHONY: all clean target-qemu run $(BUILD_TOOLS) $(DIRS)
