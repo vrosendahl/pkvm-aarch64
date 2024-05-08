@@ -6,7 +6,7 @@ all: $(DIRS)
 
 clean: host-kernel-clean ubuntu-template-clean guest-kernel-clean target-crosvm-clean tools-clean
 
-distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-clean target-crosvm-distclean tools-clean
+distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-distclean target-crosvm-distclean tools-distclean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
@@ -19,6 +19,9 @@ $(BUILD_TOOLS): | $(FETCH_SOURCES)
 tools: $(BUILD_TOOLS)
 
 tools-clean:
+	@sudo -E ./scripts/build-tools.sh clean
+
+tools-distclean:
 	@sudo -E ./scripts/build-tools.sh clean
 	@rm -rf $(TOOLDIR)
 
