@@ -4,18 +4,17 @@ export PATH=$PATH:/usr/sbin
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
-UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
-UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
 QEMU_USER=`which qemu-aarch64-static`
 CPUS=`nproc`
 
 USERNAME=$1
 CURDIR=$PWD
-UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
 EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuguest.qcow2
-OUTDIR=$BASE_DIR/images/guest
+IMAGESDIR=$BASE_DIR/images
+OUTDIR=$IMAGESDIR/guest
+UBUNTUTEMPLATE=$BASE_DIR/oss/ubuntu-template
 SIZE=10G
 
 do_unmount()
@@ -42,21 +41,25 @@ do_cleanup()
 	fi
 
 	rmmod nbd
-	rm -rf tmp linux `basename $UBUNTU_BASE`
+	rm -rf tmp
 }
 
 usage() {
 	echo "$0 -o <output directory> -s <image size> | -u"
 }
 
+if [ ! -f $UBUNTUTEMPLATE/bin/bash ];then
+	echo "Could not find an Ubuntu system at ${UBUNTUTEMPLATE}!"
+	echo "Did you remember to run make ubuntu-template?"
+	exit 1
+fi
+
 trap do_cleanup SIGHUP SIGINT SIGTERM EXIT
 
-while getopts "h?u:o:s:" opt; do
+while getopts "h?o:s:" opt; do
 	case "$opt" in
 	h|\?)	usage
 		exit 0
-		;;
-	u)	UBUNTU_BASE=$UBUNTU_UNSTABLE
 		;;
 	o)	OUTDIR=$OPTARG
 		;;
@@ -73,13 +76,12 @@ sync
 
 echo "Formatting & downloading.."
 mkfs.ext4 /dev/nbd0p1
-wget -c $UBUNTU_BASE
 sync
 
-echo "Extracting ubuntu.."
+echo "Copying ubuntu from template.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
-tar xf `basename $UBUNTU_BASE` -C tmp
+sudo tar -C $UBUNTUTEMPLATE -cf - ./|tar -C tmp -xf -
 cp $QEMU_USER tmp/usr/bin
 
 echo "Installing packages.."
@@ -88,13 +90,16 @@ mount -t proc none tmp/proc
 echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
-sudo -E chroot tmp apt-get -y install $PKGLIST
 sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
 sudo -E chroot tmp apt-get -y purge network-manager network-manager-gnome network-manager-pptp
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
+rm -f tmp/etc/ssh/ssh_host_*
+sudo -E chroot tmp dpkg-reconfigure openssh-server
+rm -f tmp/var/cache/apt/archives/*.deb || true
+rm -f tmp/var/cache/apt/archives/*.ddeb || true
 
 cat >>  tmp/etc/network/interfaces << EOF
 auto lo
@@ -151,7 +156,7 @@ echo Done
 if [ ! -d $OUTDIR ]; then
 	echo "Creating output dir.."
 	mkdir -p $OUTDIR
-	chown $USERNAME.$USERNAME $OUTDIR
+	chown -R $USERNAME.$USERNAME $IMAGESDIR
 fi
 
 cp -f $GUEST_KERNEL_DIR/arch/arm64/boot/Image $OUTDIR

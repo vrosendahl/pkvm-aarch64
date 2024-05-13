@@ -131,6 +131,11 @@ if [ "x$1" = "xclean" ]; then
 	exit 0
 fi
 
+if test -e $TOOLDIR/usr/bin/aarch64-linux-gnu-gdb && test -e $TOOLDIR/usr/bin/aarch64-linux-gnu-gcc ;then
+	echo "Tools already seem to exist, skipping!"
+	exit 0
+fi
+
 binutils-gdb
 kernel_headers_host
 glibc

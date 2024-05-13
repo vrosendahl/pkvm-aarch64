@@ -15,3 +15,5 @@ uidmap
 curl
 pciutils
 bonnie++
+numactl
+htop
