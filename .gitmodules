@@ -21,4 +21,4 @@
 	url = https://github.com/qemu/qemu.git
 [submodule "linux-host"]
 	path = linux-host
-	url = https://github.com/tiiuae/linux-pkvm-5.10.git
+	url = https://github.com/tiiuae/kernel-nvidia-jetson.git
