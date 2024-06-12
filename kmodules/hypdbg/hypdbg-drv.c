@@ -87,6 +87,14 @@ err:
 	return ret;
 }
 
+static int do_print_ramlog(void)
+{
+	uint64_t ret = -ENODATA;
+
+	ret = kvm_call_hyp_nvhe(__hyp_dbg, 4, 0, 0, 0, 0);
+	return ret;
+}
+
 static int device_open(struct inode *inode, struct file *filp)
 {
 
@@ -153,6 +161,9 @@ device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case HYPDBG_PRINT_S2_MAPPING:
 		ret = do_print_s2_mappings(argp);
+		break;
+	case HYPDBG_PRINT_RAMLOG:
+		ret = do_print_ramlog();
 		break;
 	default:
 		WARN(1, "HYPDRV: unknown ioctl: 0x%x\n", cmd);
