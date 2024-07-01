@@ -70,6 +70,18 @@ int print_s2_mapping(int fd, u32 *len, u64 id, u64 addr, u64 size)
 	return 0;
 }
 
+int print_ramlog(int fd)
+{
+	int ret;
+	printf("print_ramlog\n");
+
+	ret = ioctl(fd, HYPDBG_PRINT_RAMLOG);
+	if (ret)
+		return ret;
+	printf("ret %x\n",ret);
+	return 0;
+}
+
 int do_ioctl(int fd, int call, u32 *len, int argc, char *argv[])
 {
 	int ret = -1;
@@ -94,6 +106,9 @@ int do_ioctl(int fd, int call, u32 *len, int argc, char *argv[])
 				ret = print_s2_mapping(fd, len, id, addr, size);
 		}
 		break;
+    case 3:
+        ret = print_ramlog(fd);
+        break;
 	default:
 		usage();
 		return -1;
