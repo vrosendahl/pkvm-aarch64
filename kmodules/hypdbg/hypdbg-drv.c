@@ -29,64 +29,6 @@ static u8 *buffer;
 int hyp_dbg(u64 buf, u32 *size, u64 param1, u64 param2, u64 param3, u64 param4);
 static char *readp;
 
-static int do_count_shared_mappings(void __user *argp)
-{
-
-	struct  count_shared_params *p = 0;
-	uint64_t ret = -ENODATA;
-
-	p = kmalloc(sizeof(struct count_shared_params), GFP_KERNEL);
-	if (!p)
-		return -ENOMEM;
-	ret = copy_from_user(p, argp, sizeof(struct count_shared_params));
-	if (ret) {
-		ret = -EIO;
-		goto err;
-	}
-
-
-	ret = kvm_call_hyp_nvhe(__hyp_dbg, 3, p->id, p->size, p->lock, 0);
-
-	readp = ((struct shared_buf *) buffer)->data;
-	p->dlen = ((struct shared_buf *) buffer)->datalen;
-
-	ret = copy_to_user(argp, p,  sizeof(struct count_shared_params));
-err:
-	if (p)
-		kfree(p);
-
-	return ret;
-}
-static int do_print_s2_mappings(void __user *argp)
-{
-
-	struct s2_mapping_params *p;
-	uint64_t ret = -ENODATA;
-
-	p = kmalloc(sizeof(struct s2_mapping_params), GFP_KERNEL);
-	if (!p)
-		return -ENOMEM;
-
-	ret = copy_from_user(p, argp, sizeof(struct s2_mapping_params));
-	if (ret) {
-		ret = -EIO;
-		goto err;
-	}
-	/* TODO fis the call IDs */
-	ret = kvm_call_hyp_nvhe(__hyp_dbg, 2,
-				p->id, p->addr, p->size, 0);
-
-	readp = ((struct shared_buf *) buffer)->data;
-	p->dlen = ((struct shared_buf *) buffer)->datalen;
-
-	ret = copy_to_user(argp, p,  sizeof(struct count_shared_params));
-err:
-	if (p)
-		kfree(p);
-
-	return ret;
-}
-
 static int device_open(struct inode *inode, struct file *filp)
 {
 
@@ -145,18 +87,43 @@ static long
 device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	void __user *argp = (void __user *) arg;
+	struct  ioctl_params *p = 0;
 	int ret = -ENOTSUPP;
 
+	p = kmalloc(sizeof(struct ioctl_params), GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	ret = copy_from_user(p, argp, sizeof(struct ioctl_params));
+	if (ret) {
+		ret = -EIO;
+		goto err;
+	}
+
 	switch (cmd) {
-	case HYPDBG_COUNT_SHARED_S2_MAPPING:
-		ret = do_count_shared_mappings(argp);
-		break;
 	case HYPDBG_PRINT_S2_MAPPING:
-		ret = do_print_s2_mappings(argp);
+	    ret = kvm_call_hyp_nvhe(__hyp_dbg, cmd & _IOC_NRMASK,
+                                p->id, p->addr, p->size, 0);
+		break;
+	case HYPDBG_COUNT_SHARED_S2_MAPPING:
+	    ret = kvm_call_hyp_nvhe(__hyp_dbg, cmd & _IOC_NRMASK,
+                                p->id, p->size, p->lock, 0);
+		break;
+	case HYPDBG_PRINT_RAMLOG:
+	    ret = kvm_call_hyp_nvhe(__hyp_dbg, cmd & _IOC_NRMASK,
+                                p->dump, 0, 0, 0);
 		break;
 	default:
 		WARN(1, "HYPDRV: unknown ioctl: 0x%x\n", cmd);
 	}
+
+	readp = ((struct shared_buf *) buffer)->data;
+	p->dlen = ((struct shared_buf *) buffer)->datalen;
+
+	ret = copy_to_user(argp, p,  sizeof(struct ioctl_params));
+err:
+	if (p)
+		kfree(p);
 
 	return ret;
 }
