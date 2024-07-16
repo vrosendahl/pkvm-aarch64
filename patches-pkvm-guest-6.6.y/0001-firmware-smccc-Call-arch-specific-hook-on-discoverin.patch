@@ -1,7 +1,7 @@
-From 1c05d06731c40c584d2ab071a33960896e37a4e1 Mon Sep 17 00:00:00 2001
+From add927321aa379c3ee5d7393efb50a31b4372106 Mon Sep 17 00:00:00 2001
 From: Marc Zyngier <maz@kernel.org>
 Date: Mon, 4 Oct 2021 18:48:44 +0100
-Subject: [PATCH 1/4] firmware/smccc: Call arch-specific hook on discovering
+Subject: [PATCH 1/5] firmware/smccc: Call arch-specific hook on discovering
  KVM services
 
 arm64 will soon require its own callback to initialise services
@@ -60,5 +60,5 @@ index 89a68e7eeaa6..e2c9528b7b85 100644
  
  bool kvm_arm_hyp_service_available(u32 func_id)
 -- 
-2.34.1
+2.39.2
 

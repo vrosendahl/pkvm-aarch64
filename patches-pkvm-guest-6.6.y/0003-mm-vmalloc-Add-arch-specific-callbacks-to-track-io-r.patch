@@ -1,7 +1,7 @@
-From 3c31d7d70dfb5e5a64d2c5d4e7ee5770a70ca173 Mon Sep 17 00:00:00 2001
+From 15072546a93171fb393e63a1cdedc8c85443f559 Mon Sep 17 00:00:00 2001
 From: Marc Zyngier <maz@kernel.org>
 Date: Wed, 30 Jun 2021 13:24:32 +0100
-Subject: [PATCH 3/4] mm/vmalloc: Add arch-specific callbacks to track
+Subject: [PATCH 3/5] mm/vmalloc: Add arch-specific callbacks to track
  io{remap,unmap} physical pages
 
 Add a pair of hooks (ioremap_phys_range_hook/iounmap_phys_range_hook)
@@ -34,12 +34,12 @@ index 7304f2a69960..1a9e941d2825 100644
  		       phys_addr_t phys_addr, pgprot_t prot);
  #else
 diff --git a/mm/Kconfig b/mm/Kconfig
-index 09130434e30d..ea394f630c0b 100644
+index 264a2df5ecf5..51c1b662fb85 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
-@@ -1144,6 +1144,14 @@ config KMAP_LOCAL_NON_LINEAR_PTE_ARRAY
- config IO_MAPPING
- 	bool
+@@ -1166,6 +1166,14 @@ config IO_MAPPING
+ config MEMFD_CREATE
+ 	bool "Enable memfd_create() system call" if EXPERT
  
 +# Some architectures want callbacks for all IO mappings in order to
 +# track the physical addresses that get used as devices.
@@ -53,7 +53,7 @@ index 09130434e30d..ea394f630c0b 100644
  	default y
  	bool "Enable memfd_secret() system call" if EXPERT
 diff --git a/mm/vmalloc.c b/mm/vmalloc.c
-index ef8599d394fd..1e6749df80fa 100644
+index 7d146f198bc3..7b40048599c6 100644
 --- a/mm/vmalloc.c
 +++ b/mm/vmalloc.c
 @@ -39,6 +39,7 @@
@@ -83,7 +83,7 @@ index ef8599d394fd..1e6749df80fa 100644
  	return err;
  }
  
-@@ -2702,6 +2708,10 @@ struct vm_struct *remove_vm_area(const void *addr)
+@@ -2711,6 +2717,10 @@ struct vm_struct *remove_vm_area(const void *addr)
  	kasan_free_module_shadow(vm);
  	kasan_poison_vmalloc(vm->addr, get_vm_area_size(vm));
  
@@ -95,5 +95,5 @@ index ef8599d394fd..1e6749df80fa 100644
  	return vm;
  }
 -- 
-2.34.1
+2.39.2
 

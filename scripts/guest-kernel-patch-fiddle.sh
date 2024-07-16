@@ -6,7 +6,7 @@ fi
 
 GUEST_BRANCH="__pkvm_guest"
 START_TAG="__pkvm_guest_start"
-PATCH_DIR=$BASE_DIR/patches-pkvm-guest-6.5.y
+PATCH_DIR=$BASE_DIR/patches-pkvm-guest-6.6.y
 KERNEL_DIR=$BASE_DIR/linux
 
 usage() {
@@ -28,7 +28,7 @@ __do_patch()
     git branch -D $GUEST_BRANCH || true
     git checkout -b $GUEST_BRANCH
     echo "Patching the guest kernel..."
-    git am ../patches-pkvm-guest-6.5.y/0*.patch
+    git am $PATCH_DIR/0*.patch
 }
 
 do_patch()
