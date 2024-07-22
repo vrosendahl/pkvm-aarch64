@@ -83,13 +83,27 @@ nix::ioctl_readwrite!(count_shared_ioctl, MAGIC, COUNT_SHARED, IoctlParams);
 nix::ioctl_readwrite!(print_s2_mappings_ioctl, MAGIC, PRINT_S2_MAPPINGS, IoctlParams);
 nix::ioctl_readwrite!(ramlog_ioctl, MAGIC, PRINT_RAMLOG, IoctlParams);
 
-/* clap crate allows to use custom parsers for opts and args */
+/*
+ * Custom parser for target option
+ *
+ * "guest" being interpreted as first guest (2) as well as "guest1" (2)
+ * other guest targets containing id number which will be incremented to create
+ * actual id to be passed in the hypdbg kernel module
+ */
 fn parse_target(s: &str) -> Result<u32, String> {
     match s {
-        "hyp" => Ok(0),
-        "host" => Ok(1),
-        "guest" => Ok(2),
-        _ => Err(String::from(s)),
+        "hyp" =>     Ok(0),
+        "host" =>    Ok(1),
+        _ => if s.starts_with("guest") {
+                let (_, id_str) = s.split_at(5);
+                if id_str.is_empty() {
+                    return Ok(2);
+                } else {
+                    let id_num: u32 = id_str.parse()
+                        .expect("Specify target as guest<id>");
+                    return Ok(id_num + 1);
+                }
+             } else { Err(String::from(s)) },
     }
 }
 
@@ -118,7 +132,7 @@ fn dump_print_ramlog(input: &mut File, output: &String, len: u32) {
     println!("{} {}", "Ramlog dumped to:".yellow(), output.blue());
 }
 
-fn main() {
+fn main() -> Result<(), core::fmt::Error> {
     let args = Cli::parse();
 
     let mut file = match File::open("/dev/hypdbg") {
@@ -149,6 +163,15 @@ fn main() {
             print_kernel_buffer(&mut file, serv_struct.dlen);
         },
         Calls::CountShared(args) => {
+            if args.target == 1 {
+
+                println!("{}", "There is no big profit in a counting".yellow());
+                println!("{}", "shared pages between host and host.".yellow());
+                println!("{}",
+                    "Consider to change the target on hyp or guest#".yellow());
+
+                return Ok(());
+            }
             let mut serv_struct = IoctlParams {
                 dlen: 0,
                 id: args.target,
@@ -189,4 +212,5 @@ fn main() {
             }
         },
     }
+    return Ok(());
 }
