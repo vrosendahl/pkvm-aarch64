@@ -39,7 +39,7 @@ poorman:
 
 guest-kernel:
 	@./scripts/guest-kernel-patch-fiddle.sh patch
-	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) defconfig Image modules
+	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) guest_defconfig Image modules
 
 guest-kernel-clean:
 	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
