@@ -12,7 +12,7 @@ QEMU_USER=`which qemu-aarch64-static`
 # Default: dynamic, opengl, spice, virgl, hybris
 #
 
-UBUNTU_BASE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
+UBUNTU_BASE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04.4-base-arm64.tar.gz
 PKGLIST=`cat $BASE_DIR/scripts/package.list.22`
 
 #
