@@ -51,7 +51,7 @@ do_rmmod()
 			set -e
 			if [ $status -eq 0 ]; then
 				if [ $i -eq 1 ]; then
-					echo "Succeed in unloading kernel module on firat attempt"
+					echo "Succeed in unloading kernel module on first attempt"
 				else
 					echo "Succeded in unloading kernel module on retry $i"
 				fi
