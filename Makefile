@@ -42,23 +42,23 @@ guest-kernel:
 	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) guest_defconfig Image modules
 
 guest-kernel-clean:
-	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
+	@sudo -E $(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
 
 guest-kernel-distclean:
 	@./scripts/guest-kernel-patch-fiddle.sh clean
-	cd $(GUEST_KERNEL_DIR); git clean -xfd
+	cd $(GUEST_KERNEL_DIR); sudo -E git clean -xfd
 
 host-kernel:
 	$(MAKE) -C$(HOST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) qemu_defconfig Image modules
 
 host-kernel-clean:
-	$(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
+	@sudo -E $(MAKE) -C$(HOST_KERNEL_DIR) -j$(NJOBS) mrproper
 	@rm -f $(HOST_KERNEL_DIR)/arch/arm64/kvm/hyp/nvhe/gen-hyprel
 	@rm -f $(HOST_KERNEL_DIR)/arch/arm64/kvm/hyp/nvhe/hyp-reloc.S
 	@rm -rf $(HOST_KERNEL_DIR)/drivers/video/tegra
 
 host-kernel-distclean:
-	cd $(HOST_KERNEL_DIR); git clean -xfd
+	cd $(HOST_KERNEL_DIR); sudo -E git clean -xfd
 
 ubuntu-template:
 	@./scripts/ubuntu-template.sh
