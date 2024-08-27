@@ -149,10 +149,8 @@ EOF
 
 pwd_dir=$(pwd)
 INST_MOD_PATH="$(pwd)/tmp"
-INST_HDR_PATH="$(pwd)/tmp/usr"
 echo "Installing guest kernel modules.."
 make  -C$GUEST_KERNEL_DIR CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$INST_MOD_PATH modules_install
-make  -C$GUEST_KERNEL_DIR CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$INST_HDR_PATH headers_install
 echo Done
 
 if [ ! -d $OUTDIR ]; then

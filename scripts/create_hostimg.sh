@@ -159,8 +159,6 @@ sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_c
 echo "Installing modules.."
 make -C$CURDIR/../linux-host CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/tmp modules_install
 
-make -C$CURDIR/../linux-host CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$CURDIR/tmp/usr headers_install
-
 install --mode=0755 $BASE_DIR/scripts/run-crosvm.sh tmp/usr/bin
 sudo -E chroot tmp chown root:root /usr/bin/run-crosvm.sh
 install --mode=0755 $BASE_DIR/scripts/run-crosvm.sh tmp/home/ubuntu
