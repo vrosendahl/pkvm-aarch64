@@ -1,12 +1,12 @@
 include core/vars.mk
 
-DIRS := tools host-kernel ubuntu-template target-crosvm hostimage guest-kernel guestimage
+DIRS := tools qemu-user host-kernel ubuntu-template target-crosvm hostimage guest-kernel guestimage
 
 all: $(DIRS)
 
-clean: host-kernel-clean ubuntu-template-clean guest-kernel-clean target-crosvm-clean tools-clean
+clean: host-kernel-clean ubuntu-template-clean guest-kernel-clean target-crosvm-clean qemu-user-clean tools-clean
 
-distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-distclean target-crosvm-distclean tools-distclean
+distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-distclean target-crosvm-distclean qemu-user-distclean tools-distclean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
@@ -69,14 +69,14 @@ ubuntu-template-clean:
 ubuntu-template-distclean:
 	@./scripts/ubuntu-template.sh distclean
 
-qemu:
-	@./scripts/build-qemu.sh build
+qemu-user:
+	@./scripts/build-qemu-user.sh build
 
-qemu-clean:
-	@./scripts/build-qemu.sh clean
+qemu-user-clean:
+	@./scripts/build-qemu-user.sh clean
 
-qemu-distclean:
-	cd $(QEMUDIR); git clean -xfd
+qemu-user-distclean:
+	@./scripts/build-qemu-user.sh distclean
 
 target-qemu:
 	@./scripts/build-target-qemu.sh

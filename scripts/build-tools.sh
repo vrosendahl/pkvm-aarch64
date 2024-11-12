@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash
 
 #
 # Tested on ubuntu 20.n with no other cross tools installed other than
