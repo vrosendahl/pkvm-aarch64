@@ -105,7 +105,7 @@ gcc()
 mesa()
 {
 	cd $BASE_DIR/oss
-	wget -c https://archive.mesa3d.org//$MESA_VER.tar.xz
+	wget -c https://archive.mesa3d.org/older-versions/22.x/$MESA_VER.tar.xz
 	tar xf $MESA_VER.tar.xz
 	cd $MESA_VER
 	meson build --prefix $TOOLDIR/usr/local -Dopengl=true -Dosmesa=true -Dgallium-drivers=auto,swrast -Dshared-glapi=enabled
