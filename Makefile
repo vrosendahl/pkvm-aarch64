@@ -11,6 +11,7 @@ distclean: host-kernel-distclean ubuntu-template-distclean guest-kernel-distclea
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
 	@git submodule update --init
+	@cd $(CROSVMDIR); git submodule update --init
 
 $(BUILD_TOOLS): | $(FETCH_SOURCES)
 	@mkdir -p $(TOOLDIR)
