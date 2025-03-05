@@ -23,6 +23,16 @@ What currently works, execute the following make targets in order:
 
 * `make guestimage4`. This is optional. It provides a fourth guest image with different IP address and hostname. It depends on the guestimage target.
 
+* `make pkvm-debug-tools`. This is optional. Build pkvm-debug-tools module.
+
+* `make host-initramfs`. This is optional. Needed if pkvm-debug-tools is in use. Build host initramfs file.
+
+* `make run`. This will boot the pkvm host image with the host kernel in qemu.
+
+* `make USE_INITRAMFS=1 run`. This will boot the pkvm host image with the host kernel in qemu. Qemu loads initramfs file.
+
+* `make USE_KIC=1 run`. This will boot the pkvm host image with the host kernel in qemu. Qemu loads KIC/pVM firmware.
+ 
 * `make DEBUGGER=1 run`. This will boot the pkvm host image with the host kernel in qemu with the gdb server enabled.
 
 * `make gdb`. This will start the gdb and connect it to the qemu gdb server. This should be executed in another terminal window.

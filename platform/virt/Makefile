@@ -1,13 +1,22 @@
 ROGNAME := hyp
+
 PROG := $(OBJDIR)/$(PLATFORM)/$(PROGNAME)
 LIBNAME := lib$(PLATFORM).a
 QEMU := qemu-system-aarch64
+QEMU_DTFILE := qemu_devtree
 
 KERNEL := $(KERNEL_DIR)/arch/arm64/boot/Image
-#KERNEL := $(HOME)/x0/Image
-IMAGE :=  $(KERNEL_DIR)/../images/host/ubuntuhost.qcow2
+HOST_IMAGE_DIR := $(BASE_DIR)/images/host
+IMAGE :=  $(HOST_IMAGE_DIR)/ubuntuhost.qcow2
+PVMFW_LOADER := $(HOST_IMAGE_DIR)/ic_loader.bin
+PVMFW_ADDRESS := 0x40001000
+
+INITRAMFS := $(HOST_IMAGE_DIR)/initramfs.gz
+INITRAMFS_ADDR := 0x7f000000
+
+KERNEL_PKVM_PARAMS := kvm-arm.mode=protected kvm-arm.protected_modules=pkvm-dbg-tools
+
 VMLINUX := $(KERNEL_DIR)/vmlinux
-KERNEL_OPTS := kvm-arm.mode=protected root=/dev/vda1 console=ttyAMA0 mem=8G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 #DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
@@ -18,6 +27,7 @@ NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=1
 COMP_IMG ?= $(OBJDIR)/$(PLATFORM)/hyp-loader
 USE_COMP_IMG ?= 0
 
+KERNEL_OPTS :=  $(KERNEL_PKVM_PARAMS) root=/dev/vda1 console=ttyAMA0 mem=8G nokaslr loglevel=8 rw
 
 SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
@@ -47,28 +57,54 @@ QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUG
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 8G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
+ifneq (,$(filter 1, $(USE_KIC) $(USE_INITRAMFS)))
+EXTRAOPTS :=  -dtb $(QEMU_DTFILE).dtb
+TMPFILE := $(shell mktemp)
+
+endif
+
+ifeq ($(USE_KIC),1)
+EXTRAOPTS += -device loader,file=$(PVMFW_LOADER),addr=$(PVMFW_ADDRESS)
+endif
+
+ifeq ($(USE_INITRAMFS),1)
+EXTRAOPTS += -device loader,file=$(INITRAMFS),addr=$(INITRAMFS_ADDR)
+endif
+
+QEMUOPTS := $(QEMUOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
+
 ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s
 endif
 
 ifeq ($(QEMUDEBUG),1)
-QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
+QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) $(EXTRAOPTS) -serial stdio -display none"
 else
-QEMUCMD := $(QEMU) $(QEMUOPTS) -nographic
+QEMUCMD := $(QEMU) $(QEMUOPTS) $(EXTRAOPTS) -nographic
 endif
 
 ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
+QEMUCMD-DTB :=   $(QEMU) $(QEMUOPTS) -machine dumpdtb=$(QEMU_DTFILE).dtb -nographic
+
 include $(BASE_DIR)/core/common.mk
 
 all: run
 
-run:
+run: generate-dtb
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
 	@echo "Graphics available at 'spice+unix://$(SPICESOCK)'"
+endif
+ifeq ($(USE_KIC),1)
+	@echo "KIC/pVM firmware is loaded by QEMU "
+endif
+ifeq ($(USE_INITRAMFS),1)
+		@echo "Use initramfs"
+else
+		@echo Dont use initramfs
 endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
@@ -76,6 +112,22 @@ endif
 	@which  $(QEMU)
 	@echo $(QEMUCMD)
 	@$(QEMUCMD)
+
+generate-dtb:
+	@echo Genetate host dtb file
+	@$(QEMUCMD-DTB)
+	@dtc -O dts -o $(QEMU_DTFILE).dts -I dtb $(QEMU_DTFILE).dtb
+ifeq ($(USE_KIC),1)
+	@cp $(QEMU_DTFILE).dts $(TMPFILE)
+	$(CURDIR)/fix-qemu-dts.py -i $(TMPFILE) -o $(QEMU_DTFILE).dts  -K \
+	-a $(PVMFW_ADDRESS) -s $(shell stat -c %s $(PVMFW_LOADER))
+endif
+ifeq ($(USE_INITRAMFS),1)
+	@cp $(QEMU_DTFILE).dts $(TMPFILE)
+	@$(CURDIR)/fix-qemu-dts.py -i $(TMPFILE) -o $(QEMU_DTFILE).dts  -I \
+	-a $(INITRAMFS_ADDR) -s $(shell stat -c %s $(INITRAMFS))
+endif
+	@dtc -I dts -o $(QEMU_DTFILE).dtb -O dtb $(QEMU_DTFILE).dts
 
 poorman:
 	@CROSS_COMPILE=$(CROSS_COMPILE) PROG=$(PROG) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \
@@ -86,4 +138,3 @@ gdb:
 		$(VMLINUX)
 
 FORCE:
-	

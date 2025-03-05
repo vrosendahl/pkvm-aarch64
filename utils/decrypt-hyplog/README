@@ -1,7 +1,0 @@
-```build
-make
-
-```usage
-./decrypt-hyplog <dump-with-encrypted-log>
-
-output will be store in "hyplog.decrypted.dump" file
