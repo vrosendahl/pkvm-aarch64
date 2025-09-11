@@ -81,12 +81,14 @@ ubuntu-template-distclean:
 	@./scripts/ubuntu-template.sh distclean
 
 qemu-user:
+	@./scripts/patch-fiddle.sh patch qemu patches/qemu
 	@./scripts/build-qemu-user.sh build
 
 qemu-user-clean:
 	@./scripts/build-qemu-user.sh clean
 
 qemu-user-distclean:
+	@./scripts/patch-fiddle.sh clean qemu
 	@./scripts/build-qemu-user.sh distclean
 
 target-qemu:

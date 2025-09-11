@@ -1,0 +1,37 @@
+From 61004c5d78f1a0dcfccc4be806d64e412eb27675 Mon Sep 17 00:00:00 2001
+From: Viktor Rosendahl <viktor.rosendahl@gmail.com>
+Date: Fri, 12 Sep 2025 01:00:17 +0300
+Subject: [PATCH] iinux-user/syscall.c: try to build even if struct sched_attr
+ is defined
+
+The idea here is that if SCHED_ATTR_SIZE_VER1 is defined, then too
+struct sched_attr is assumed to be defined.
+
+Signed-off-by: Viktor Rosendahl <viktor.rosendahl@gmail.com>
+---
+ linux-user/syscall.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/linux-user/syscall.c b/linux-user/syscall.c
+index 53c46ae951..44e7a7d42c 100644
+--- a/linux-user/syscall.c
++++ b/linux-user/syscall.c
+@@ -352,6 +352,7 @@ _syscall3(int, sys_sched_getaffinity, pid_t, pid, unsigned int, len,
+ #define __NR_sys_sched_setaffinity __NR_sched_setaffinity
+ _syscall3(int, sys_sched_setaffinity, pid_t, pid, unsigned int, len,
+           unsigned long *, user_mask_ptr);
++#ifndef SCHED_ATTR_SIZE_VER1
+ /* sched_attr is not defined in glibc */
+ struct sched_attr {
+     uint32_t size;
+@@ -365,6 +366,7 @@ struct sched_attr {
+     uint32_t sched_util_min;
+     uint32_t sched_util_max;
+ };
++#endif
+ #define __NR_sys_sched_getattr __NR_sched_getattr
+ _syscall4(int, sys_sched_getattr, pid_t, pid, struct sched_attr *, attr,
+           unsigned int, size, unsigned int, flags);
+-- 
+2.39.5
+
