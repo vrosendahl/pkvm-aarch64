@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -xe
 
 export PATH=$PATH:/usr/sbin
 cd "$(dirname "$0")"
@@ -23,6 +23,50 @@ SIZE=10G
 if [ -z "${BUILD_QEMU_USER+x}" ]; then
 	BUILD_QEMU_USER=1
 fi
+
+# Detect whether udevadm wait is available (systemd >= 251)
+udev_has_wait() {
+	v=$(udevadm --version 2>/dev/null || echo 0)
+	[ "$v" -ge 251 ]
+}
+
+udev_blockdev_sync() {
+	newdev=$1
+	if udev_has_wait; then
+		# Precise: wait for actual appearance
+		udevadm wait --timeout=30 --settle $newdev || true
+	else
+		# Portable fallback: loop settle + check until /dev/device appears
+		deadline=$((SECONDS + 30))
+		while [ ! -e "$newdev" ] && [ $SECONDS -lt $deadline ]; do
+			udevadm settle --timeout=5 || true
+			# Small pause to avoid busy-waiting
+			sleep 1
+		done
+	fi
+	if [ ! -e "$newdev" ]; then
+		echo "ERROR: timeout waiting for $newdev"
+		return 1
+	fi
+}
+
+wait4_dev_connect()
+{
+	device=$1
+	deadline=$((SECONDS + 30))
+	while [ ! $(blockdev --getsz $device) -gt 0 ] && [ $SECONDS -lt $deadline ]; do
+		sleep 0.1
+	done
+}
+
+wait4_dev_disconnect()
+{
+	device=$1
+	deadline=$((SECONDS + 30))
+	while [ $(blockdev --getsz $device) -gt 0 ] && [ $SECONDS -lt $deadline ]; do
+		sleep 0.1
+	done
+}
 
 do_unmount()
 {
@@ -62,8 +106,10 @@ do_cleanup()
 	do_unmount tmp/dev || true
 	do_unmount tmp || true
 	restore_binfmt
+	blockdev --flushbufs /dev/nbd0 || true
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
+	wait4_dev_disconnect /dev/nbd0 || true
 	if [ -f $OUTDIR/$OUTFILE ]; then
 		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
 	fi
@@ -155,9 +201,20 @@ if [ $BUILD_QEMU_USER = 1 ];then
 fi
 
 qemu-img create -f qcow2 $OUTFILE $SIZE
+udev_blockdev_sync /dev/nbd0 || true
 qemu-nbd --connect=/dev/nbd0 $OUTFILE
+wait4_dev_connect /dev/nbd0
 parted -a optimal /dev/nbd0 mklabel gpt mkpart primary ext4 0% 100%
 sync
+
+# Wait for /dev/nbd0p1 to appear and poke the kernel if it has not, then wait
+# again
+udev_blockdev_sync /dev/nbd0p1 || true
+if [ ! -e /dev/nbd0p1 ]; then
+	partx -u /dev/nbd0 || true
+	udev_blockdev_sync /dev/nbd0p1
+fi
+
 
 echo "Formatting & downloading.."
 mkfs.ext4 /dev/nbd0p1
