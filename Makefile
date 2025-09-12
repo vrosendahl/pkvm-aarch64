@@ -39,14 +39,14 @@ poorman:
 	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(HOST_KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
 guest-kernel:
-	@./scripts/guest-kernel-patch-fiddle.sh patch
+	@./scripts/patch-fiddle.sh patch linux patches-pkvm-guest-6.6.y
 	$(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$(NJOBS) guest_defconfig Image modules
 
 guest-kernel-clean:
 	@sudo -E $(MAKE) -C$(GUEST_KERNEL_DIR) CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 mrproper
 
 guest-kernel-distclean:
-	@./scripts/guest-kernel-patch-fiddle.sh clean
+	@./scripts/patch-fiddle.sh clean linux
 	cd $(GUEST_KERNEL_DIR); sudo -E git clean -xfd
 
 host-kernel:
