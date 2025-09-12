@@ -1,4 +1,4 @@
-#!/bin/bash -xe
+#!/bin/bash -e
 
 export PATH=$PATH:/usr/sbin
 cd "$(dirname "$0")"
