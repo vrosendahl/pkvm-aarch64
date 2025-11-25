@@ -1,7 +1,7 @@
-From d6f5d3da6eac5e2ed24be52ed9ee1548f2874f02 Mon Sep 17 00:00:00 2001
+From 835ed7a3eaa57a030bd2ccc0a0659c6b5aa60035 Mon Sep 17 00:00:00 2001
 From: Viktor Rosendahl <viktor.rosendahl@unikie.com>
 Date: Thu, 25 Apr 2024 21:48:14 +0300
-Subject: [PATCH 5/5] guest_defconfig: Create a new defconfig for the guest
+Subject: [PATCH 05/16] guest_defconfig: Create a new defconfig for the guest
  kernel
 
 The original defconfig is a good starting point for a kernel configuration
@@ -626,5 +626,5 @@ index 000000000000..459c65d83851
 +# CONFIG_FTRACE is not set
 +CONFIG_MEMTEST=y
 -- 
-2.39.2
+2.47.3
 

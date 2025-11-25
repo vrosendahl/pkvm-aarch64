@@ -1,7 +1,7 @@
-From 15072546a93171fb393e63a1cdedc8c85443f559 Mon Sep 17 00:00:00 2001
+From 9a8422cfd47c382f4b0f828859be8bf06771cd19 Mon Sep 17 00:00:00 2001
 From: Marc Zyngier <maz@kernel.org>
 Date: Wed, 30 Jun 2021 13:24:32 +0100
-Subject: [PATCH 3/5] mm/vmalloc: Add arch-specific callbacks to track
+Subject: [PATCH 03/16] mm/vmalloc: Add arch-specific callbacks to track
  io{remap,unmap} physical pages
 
 Add a pair of hooks (ioremap_phys_range_hook/iounmap_phys_range_hook)
@@ -34,10 +34,10 @@ index 7304f2a69960..1a9e941d2825 100644
  		       phys_addr_t phys_addr, pgprot_t prot);
  #else
 diff --git a/mm/Kconfig b/mm/Kconfig
-index 264a2df5ecf5..51c1b662fb85 100644
+index 046c32686fc4..ee1c3aa4fba7 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
-@@ -1166,6 +1166,14 @@ config IO_MAPPING
+@@ -1190,6 +1190,14 @@ config IO_MAPPING
  config MEMFD_CREATE
  	bool "Enable memfd_create() system call" if EXPERT
  
@@ -53,7 +53,7 @@ index 264a2df5ecf5..51c1b662fb85 100644
  	default y
  	bool "Enable memfd_secret() system call" if EXPERT
 diff --git a/mm/vmalloc.c b/mm/vmalloc.c
-index 7d146f198bc3..7b40048599c6 100644
+index 7eb92bcdbd8c..3842ec69fd34 100644
 --- a/mm/vmalloc.c
 +++ b/mm/vmalloc.c
 @@ -39,6 +39,7 @@
@@ -83,7 +83,7 @@ index 7d146f198bc3..7b40048599c6 100644
  	return err;
  }
  
-@@ -2711,6 +2717,10 @@ struct vm_struct *remove_vm_area(const void *addr)
+@@ -2727,6 +2733,10 @@ struct vm_struct *remove_vm_area(const void *addr)
  	kasan_free_module_shadow(vm);
  	kasan_poison_vmalloc(vm->addr, get_vm_area_size(vm));
  
@@ -95,5 +95,5 @@ index 7d146f198bc3..7b40048599c6 100644
  	return vm;
  }
 -- 
-2.39.2
+2.47.3
 

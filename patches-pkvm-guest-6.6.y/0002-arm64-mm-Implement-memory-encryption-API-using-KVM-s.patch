@@ -1,7 +1,7 @@
-From 291177a7361e07e11d70e11081ce2a1ecffbc81a Mon Sep 17 00:00:00 2001
+From 501582e494c5096a260d344d589ba968d1bbb68b Mon Sep 17 00:00:00 2001
 From: Will Deacon <willdeacon@google.com>
 Date: Thu, 5 Aug 2021 14:23:07 +0100
-Subject: [PATCH 2/5] arm64: mm: Implement memory encryption API using KVM
+Subject: [PATCH 02/16] arm64: mm: Implement memory encryption API using KVM
  sharing hypercalls
 
 When running as a protected guest, the KVM host does not have access to
@@ -31,7 +31,7 @@ Signed-off-by: Will Deacon <will@kernel.org>
  create mode 100644 arch/arm64/mm/mem_encrypt.c
 
 diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
-index f9777ce2ccb2..91078220bf1e 100644
+index 1be9f1f6b320..0d821f7cde76 100644
 --- a/arch/arm64/Kconfig
 +++ b/arch/arm64/Kconfig
 @@ -33,6 +33,7 @@ config ARM64
@@ -42,7 +42,7 @@ index f9777ce2ccb2..91078220bf1e 100644
  	select ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
  	select ARCH_HAS_PTE_DEVMAP
  	select ARCH_HAS_PTE_SPECIAL
-@@ -2333,4 +2334,3 @@ endmenu # "CPU Power Management"
+@@ -2374,4 +2375,3 @@ endmenu # "CPU Power Management"
  source "drivers/acpi/Kconfig"
  
  source "arch/arm64/kvm/Kconfig"
@@ -74,7 +74,7 @@ index 000000000000..300c8b8cbebe
 +
 +#endif	/* __ASM_MEM_ENCRYPT_H */
 diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
-index 417a8a86b2db..c1997c05c421 100644
+index 040b0175334c..1abc35ab2b62 100644
 --- a/arch/arm64/kernel/setup.c
 +++ b/arch/arm64/kernel/setup.c
 @@ -41,6 +41,7 @@
@@ -85,7 +85,7 @@ index 417a8a86b2db..c1997c05c421 100644
  #include <asm/kasan.h>
  #include <asm/numa.h>
  #include <asm/scs.h>
-@@ -457,3 +458,8 @@ static int __init check_mmu_enabled_at_boot(void)
+@@ -458,3 +459,8 @@ static int __init check_mmu_enabled_at_boot(void)
  	return 0;
  }
  device_initcall_sync(check_mmu_enabled_at_boot);
@@ -246,5 +246,5 @@ index 000000000000..849b0e628e02
 +				   addr, numpages);
 +}
 -- 
-2.39.2
+2.47.3
 
