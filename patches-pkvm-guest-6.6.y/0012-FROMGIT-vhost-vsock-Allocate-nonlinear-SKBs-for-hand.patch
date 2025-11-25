@@ -1,0 +1,120 @@
+From 994be5934ffe35249fe9905388634f1e31ab0f14 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Thu, 17 Jul 2025 10:01:14 +0100
+Subject: [PATCH 12/16] FROMGIT: vhost/vsock: Allocate nonlinear SKBs for
+ handling large receive buffers
+
+When receiving a packet from a guest, vhost_vsock_handle_tx_kick()
+calls vhost_vsock_alloc_linear_skb() to allocate and fill an SKB with
+the receive data. Unfortunately, these are always linear allocations and
+can therefore result in significant pressure on kmalloc() considering
+that the maximum packet size (VIRTIO_VSOCK_MAX_PKT_BUF_SIZE +
+VIRTIO_VSOCK_SKB_HEADROOM) is a little over 64KiB, resulting in a 128KiB
+allocation for each packet.
+
+Rework the vsock SKB allocation so that, for sizes with page order
+greater than PAGE_ALLOC_COSTLY_ORDER, a nonlinear SKB is allocated
+instead with the packet header in the SKB and the receive data in the
+fragments. Finally, add a debug warning if virtio_vsock_skb_rx_put() is
+ever called on an SKB with a non-zero length, as this would be
+destructive for the nonlinear case.
+
+Reviewed-by: Stefano Garzarella <sgarzare@redhat.com>
+Signed-off-by: Will Deacon <will@kernel.org>
+Message-Id: <20250717090116.11987-8-will@kernel.org>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+(cherry picked from commit 4243469b093ac35f54c3a0414812a5b97313e149
+ git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git vhost)
+Bug: 421244320
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I4212a8daf9f19b5bbffc06ce93338c823de7bb19
+---
+ drivers/vhost/vsock.c        |  8 +++-----
+ include/linux/virtio_vsock.h | 32 +++++++++++++++++++++++++++++---
+ 2 files changed, 32 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/vhost/vsock.c b/drivers/vhost/vsock.c
+index 93375980ecba..42f47ced8a3e 100644
+--- a/drivers/vhost/vsock.c
++++ b/drivers/vhost/vsock.c
+@@ -349,7 +349,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
+ 		return NULL;
+ 
+ 	/* len contains both payload and hdr */
+-	skb = virtio_vsock_alloc_linear_skb(len, GFP_KERNEL);
++	skb = virtio_vsock_alloc_skb(len, GFP_KERNEL);
+ 	if (!skb)
+ 		return NULL;
+ 
+@@ -378,10 +378,8 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
+ 
+ 	virtio_vsock_skb_rx_put(skb, payload_len);
+ 
+-	nbytes = copy_from_iter(skb->data, payload_len, &iov_iter);
+-	if (nbytes != payload_len) {
+-		vq_err(vq, "Expected %zu byte payload, got %zu bytes\n",
+-		       payload_len, nbytes);
++	if (skb_copy_datagram_from_iter(skb, 0, &iov_iter, payload_len)) {
++		vq_err(vq, "Failed to copy %zu byte payload\n", payload_len);
+ 		kfree_skb(skb);
+ 		return NULL;
+ 	}
+diff --git a/include/linux/virtio_vsock.h b/include/linux/virtio_vsock.h
+index 4be5d81a91e3..5754ecdd313b 100644
+--- a/include/linux/virtio_vsock.h
++++ b/include/linux/virtio_vsock.h
+@@ -49,22 +49,48 @@ static inline void virtio_vsock_skb_clear_tap_delivered(struct sk_buff *skb)
+ 
+ static inline void virtio_vsock_skb_rx_put(struct sk_buff *skb, u32 len)
+ {
+-	skb_put(skb, len);
++	DEBUG_NET_WARN_ON_ONCE(skb->len);
++
++	if (skb_is_nonlinear(skb))
++		skb->len = len;
++	else
++		skb_put(skb, len);
+ }
+ 
+ static inline struct sk_buff *
+-virtio_vsock_alloc_linear_skb(unsigned int size, gfp_t mask)
++__virtio_vsock_alloc_skb_with_frags(unsigned int header_len,
++				    unsigned int data_len,
++				    gfp_t mask)
+ {
+ 	struct sk_buff *skb;
++	int err;
+ 
+-	skb = alloc_skb(size, mask);
++	skb = alloc_skb_with_frags(header_len, data_len,
++				   PAGE_ALLOC_COSTLY_ORDER, &err, mask);
+ 	if (!skb)
+ 		return NULL;
+ 
+ 	skb_reserve(skb, VIRTIO_VSOCK_SKB_HEADROOM);
++	skb->data_len = data_len;
+ 	return skb;
+ }
+ 
++static inline struct sk_buff *
++virtio_vsock_alloc_linear_skb(unsigned int size, gfp_t mask)
++{
++	return __virtio_vsock_alloc_skb_with_frags(size, 0, mask);
++}
++
++static inline struct sk_buff *virtio_vsock_alloc_skb(unsigned int size, gfp_t mask)
++{
++	if (size <= SKB_WITH_OVERHEAD(PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER))
++		return virtio_vsock_alloc_linear_skb(size, mask);
++
++	size -= VIRTIO_VSOCK_SKB_HEADROOM;
++	return __virtio_vsock_alloc_skb_with_frags(VIRTIO_VSOCK_SKB_HEADROOM,
++						   size, mask);
++}
++
+ static inline void
+ virtio_vsock_skb_queue_head(struct sk_buff_head *list, struct sk_buff *skb)
+ {
+-- 
+2.47.3
+

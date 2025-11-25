@@ -1,0 +1,68 @@
+From bfc7ba4b2eddd64b406c8efc3fff78e1efaf5da0 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Thu, 17 Jul 2025 10:01:15 +0100
+Subject: [PATCH 13/16] FROMGIT: vsock/virtio: Rename virtio_vsock_skb_rx_put()
+
+In preparation for using virtio_vsock_skb_rx_put() when populating SKBs
+on the vsock TX path, rename virtio_vsock_skb_rx_put() to
+virtio_vsock_skb_put().
+
+No functional change.
+
+Reviewed-by: Stefano Garzarella <sgarzare@redhat.com>
+Signed-off-by: Will Deacon <will@kernel.org>
+Message-Id: <20250717090116.11987-9-will@kernel.org>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+(cherry picked from commit 8a5c2992b0bda3ef65fdd3835210c2301603c53e
+ git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git vhost)
+Bug: 421244320
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I4455bdbd484e54fdcf75f9169c71c835bfac1e16
+---
+ drivers/vhost/vsock.c            | 2 +-
+ include/linux/virtio_vsock.h     | 2 +-
+ net/vmw_vsock/virtio_transport.c | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/vhost/vsock.c b/drivers/vhost/vsock.c
+index 42f47ced8a3e..9d6c6cdac050 100644
+--- a/drivers/vhost/vsock.c
++++ b/drivers/vhost/vsock.c
+@@ -376,7 +376,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
+ 		return NULL;
+ 	}
+ 
+-	virtio_vsock_skb_rx_put(skb, payload_len);
++	virtio_vsock_skb_put(skb, payload_len);
+ 
+ 	if (skb_copy_datagram_from_iter(skb, 0, &iov_iter, payload_len)) {
+ 		vq_err(vq, "Failed to copy %zu byte payload\n", payload_len);
+diff --git a/include/linux/virtio_vsock.h b/include/linux/virtio_vsock.h
+index 5754ecdd313b..24e9dc62dc8b 100644
+--- a/include/linux/virtio_vsock.h
++++ b/include/linux/virtio_vsock.h
+@@ -47,7 +47,7 @@ static inline void virtio_vsock_skb_clear_tap_delivered(struct sk_buff *skb)
+ 	VIRTIO_VSOCK_SKB_CB(skb)->tap_delivered = false;
+ }
+ 
+-static inline void virtio_vsock_skb_rx_put(struct sk_buff *skb, u32 len)
++static inline void virtio_vsock_skb_put(struct sk_buff *skb, u32 len)
+ {
+ 	DEBUG_NET_WARN_ON_ONCE(skb->len);
+ 
+diff --git a/net/vmw_vsock/virtio_transport.c b/net/vmw_vsock/virtio_transport.c
+index 3965ae106c4f..5d7c68214d57 100644
+--- a/net/vmw_vsock/virtio_transport.c
++++ b/net/vmw_vsock/virtio_transport.c
+@@ -572,7 +572,7 @@ static void virtio_transport_rx_work(struct work_struct *work)
+ 			}
+ 
+ 			if (payload_len)
+-				virtio_vsock_skb_rx_put(skb, payload_len);
++				virtio_vsock_skb_put(skb, payload_len);
+ 
+ 			virtio_transport_deliver_tap_pkt(skb);
+ 			virtio_transport_recv_pkt(&virtio_transport, skb);
+-- 
+2.47.3
+

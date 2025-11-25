@@ -1,0 +1,69 @@
+From 526b32c296237070e52c11bb6f3ce1b8514e95a7 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Mon, 18 Aug 2025 19:03:55 +0100
+Subject: [PATCH 16/16] BACKPORT: vsock/virtio: Fix message iterator handling
+ on transmit path
+
+Commit 6693731487a8 ("vsock/virtio: Allocate nonlinear SKBs for handling
+large transmit buffers") converted the virtio vsock transmit path to
+utilise nonlinear SKBs when handling large buffers. As part of this
+change, virtio_transport_fill_skb() was updated to call
+skb_copy_datagram_from_iter() instead of memcpy_from_msg() as the latter
+expects a single destination buffer and cannot handle nonlinear SKBs
+correctly.
+
+Unfortunately, during this conversion, I overlooked the error case when
+the copying function returns -EFAULT due to a fault on the input buffer
+in userspace. In this case, memcpy_from_msg() reverts the iterator to
+its initial state thanks to copy_from_iter_full() whereas
+skb_copy_datagram_from_iter() leaves the iterator partially advanced.
+This results in a WARN_ONCE() from the vsock code, which expects the
+iterator to stay in sync with the number of bytes transmitted so that
+virtio_transport_send_pkt_info() can return -EFAULT when it is called
+again:
+
+  ------------[ cut here ]------------
+  'send_pkt()' returns 0, but 65536 expected
+  WARNING: CPU: 0 PID: 5503 at net/vmw_vsock/virtio_transport_common.c:428 virtio_transport_send_pkt_info+0xd11/0xf00 net/vmw_vsock/virtio_transport_common.c:426
+  Modules linked in:
+  CPU: 0 UID: 0 PID: 5503 Comm: syz.0.17 Not tainted 6.16.0-syzkaller-12063-g37816488247d #0 PREEMPT(full)
+  Hardware name: QEMU Standard PC (Q35 + ICH9, 2009), BIOS 1.16.3-debian-1.16.3-2~bpo12+1 04/01/2014
+
+Call virtio_transport_fill_skb_full() to restore the previous iterator
+behaviour.
+
+Cc: Jason Wang <jasowang@redhat.com>
+Cc: Stefano Garzarella <sgarzare@redhat.com>
+Fixes: 6693731487a8 ("vsock/virtio: Allocate nonlinear SKBs for handling large transmit buffers")
+Reported-by: syzbot+b4d960daf7a3c7c2b7b1@syzkaller.appspotmail.com
+Signed-off-by: Will Deacon <will@kernel.org>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Reviewed-by: Stefan Hajnoczi <stefanha@redhat.com>
+Link: https://patch.msgid.link/20250818180355.29275-3-will@kernel.org
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+(cherry picked from commit 7fb1291257ea1e27dbc3f34c6a37b4d640aafdd7)
+Bug: 421244320
+[willdeacon@: Inline skb_copy_datagram_from_iter_full() call due to missing
+ zero-copy support]
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I1deb7f9f0406e4dcb970dd83960be4bcc1520717
+---
+ net/vmw_vsock/virtio_transport_common.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/net/vmw_vsock/virtio_transport_common.c b/net/vmw_vsock/virtio_transport_common.c
+index 94eed1cd1d35..52fa4de540ad 100644
+--- a/net/vmw_vsock/virtio_transport_common.c
++++ b/net/vmw_vsock/virtio_transport_common.c
+@@ -75,7 +75,7 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
+ 
+ 	if (info->msg && len > 0) {
+ 		virtio_vsock_skb_put(skb, len);
+-		err = skb_copy_datagram_from_iter(skb, 0, &info->msg->msg_iter, len);
++		err = skb_copy_datagram_from_iter_full(skb, 0, &info->msg->msg_iter, len);
+ 		if (err)
+ 			goto out;
+ 
+-- 
+2.47.3
+

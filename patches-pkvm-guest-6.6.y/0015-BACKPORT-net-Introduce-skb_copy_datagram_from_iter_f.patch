@@ -1,0 +1,71 @@
+From 9e4d87c5b9716fb227bb12acb694e9c5ddfde53a Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Mon, 18 Aug 2025 19:03:54 +0100
+Subject: [PATCH 15/16] BACKPORT: net: Introduce
+ skb_copy_datagram_from_iter_full()
+
+In a similar manner to copy_from_iter()/copy_from_iter_full(), introduce
+skb_copy_datagram_from_iter_full() which reverts the iterator to its
+initial state when returning an error.
+
+A subsequent fix for a vsock regression will make use of this new
+function.
+
+Cc: Christian Brauner <brauner@kernel.org>
+Cc: Alexander Viro <viro@zeniv.linux.org.uk>
+Signed-off-by: Will Deacon <will@kernel.org>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Reviewed-by: Stefan Hajnoczi <stefanha@redhat.com>
+Link: https://patch.msgid.link/20250818180355.29275-2-will@kernel.org
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+(cherry picked from commit b08a784a5d1495c42ff9b0c70887d49211cddfe0)
+Bug: 421244320
+[willdeacon@: Fix context conflict with __zerocopy_sg_from_iter()]
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I1a19947a273bf88f57474974d8cd752dc13246ee
+---
+ include/linux/skbuff.h |  2 ++
+ net/core/datagram.c    | 14 ++++++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index 3a558a3c2cca..d24fa3a7ba48 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -4026,6 +4026,8 @@ int skb_copy_and_hash_datagram_iter(const struct sk_buff *skb, int offset,
+ 			   struct ahash_request *hash);
+ int skb_copy_datagram_from_iter(struct sk_buff *skb, int offset,
+ 				 struct iov_iter *from, int len);
++int skb_copy_datagram_from_iter_full(struct sk_buff *skb, int offset,
++				     struct iov_iter *from, int len);
+ int zerocopy_sg_from_iter(struct sk_buff *skb, struct iov_iter *frm);
+ void skb_free_datagram(struct sock *sk, struct sk_buff *skb);
+ void __skb_free_datagram_locked(struct sock *sk, struct sk_buff *skb, int len);
+diff --git a/net/core/datagram.c b/net/core/datagram.c
+index ef4e9e423d39..9a478b9dd6d8 100644
+--- a/net/core/datagram.c
++++ b/net/core/datagram.c
+@@ -618,6 +618,20 @@ int skb_copy_datagram_from_iter(struct sk_buff *skb, int offset,
+ }
+ EXPORT_SYMBOL(skb_copy_datagram_from_iter);
+ 
++int skb_copy_datagram_from_iter_full(struct sk_buff *skb, int offset,
++				     struct iov_iter *from, int len)
++{
++	struct iov_iter_state state;
++	int ret;
++
++	iov_iter_save_state(from, &state);
++	ret = skb_copy_datagram_from_iter(skb, offset, from, len);
++	if (ret)
++		iov_iter_restore(from, &state);
++	return ret;
++}
++EXPORT_SYMBOL(skb_copy_datagram_from_iter_full);
++
+ int __zerocopy_sg_from_iter(struct msghdr *msg, struct sock *sk,
+ 			    struct sk_buff *skb, struct iov_iter *from,
+ 			    size_t length)
+-- 
+2.47.3
+

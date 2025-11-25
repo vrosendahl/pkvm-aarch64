@@ -1,0 +1,65 @@
+From 0f8a7e116cd6af797208b0f62f0d7e12e7b9e396 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Thu, 17 Jul 2025 10:01:16 +0100
+Subject: [PATCH 14/16] FROMGIT: BACKPORT: vsock/virtio: Allocate nonlinear
+ SKBs for handling large transmit buffers
+
+When transmitting a vsock packet, virtio_transport_send_pkt_info() calls
+virtio_transport_alloc_linear_skb() to allocate and fill SKBs with the
+transmit data. Unfortunately, these are always linear allocations and
+can therefore result in significant pressure on kmalloc() considering
+that the maximum packet size (VIRTIO_VSOCK_MAX_PKT_BUF_SIZE +
+VIRTIO_VSOCK_SKB_HEADROOM) is a little over 64KiB, resulting in a 128KiB
+allocation for each packet.
+
+Rework the vsock SKB allocation so that, for sizes with page order
+greater than PAGE_ALLOC_COSTLY_ORDER, a nonlinear SKB is allocated
+instead with the packet header in the SKB and the transmit data in the
+fragments. Note that this affects both the vhost and virtio transports.
+
+Reviewed-by: Stefano Garzarella <sgarzare@redhat.com>
+Signed-off-by: Will Deacon <will@kernel.org>
+Message-Id: <20250717090116.11987-10-will@kernel.org>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+(cherry picked from commit c7991b44d7b44f9270dec63acd0b2965d29aab43
+ git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git vhost)
+Bug: 421244320
+[willdeacon@: Inline skb_copy_datagram_from_iter() call due to missing
+ zero-copy support and therefore missing definition of
+ virtio_transport_fill_skb()]
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: Icf2d6179ca7ac36383604ba6e0fd96a7f5a9c767
+---
+ net/vmw_vsock/virtio_transport_common.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/net/vmw_vsock/virtio_transport_common.c b/net/vmw_vsock/virtio_transport_common.c
+index a7f547cb10c5..94eed1cd1d35 100644
+--- a/net/vmw_vsock/virtio_transport_common.c
++++ b/net/vmw_vsock/virtio_transport_common.c
+@@ -55,10 +55,9 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
+ 	const size_t skb_len = VIRTIO_VSOCK_SKB_HEADROOM + len;
+ 	struct virtio_vsock_hdr *hdr;
+ 	struct sk_buff *skb;
+-	void *payload;
+ 	int err;
+ 
+-	skb = virtio_vsock_alloc_linear_skb(skb_len, GFP_KERNEL);
++	skb = virtio_vsock_alloc_skb(skb_len, GFP_KERNEL);
+ 	if (!skb)
+ 		return NULL;
+ 
+@@ -75,8 +74,8 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
+ 	hdr->fwd_cnt	= cpu_to_le32(0);
+ 
+ 	if (info->msg && len > 0) {
+-		payload = skb_put(skb, len);
+-		err = memcpy_from_msg(payload, info->msg, len);
++		virtio_vsock_skb_put(skb, len);
++		err = skb_copy_datagram_from_iter(skb, 0, &info->msg->msg_iter, len);
+ 		if (err)
+ 			goto out;
+ 
+-- 
+2.47.3
+

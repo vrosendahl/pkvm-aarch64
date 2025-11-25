@@ -1,0 +1,60 @@
+From 1b48651fbe9cbf2efe3c933e0e24724d6382af5f Mon Sep 17 00:00:00 2001
+From: Will Deacon <will@kernel.org>
+Date: Thu, 17 Jul 2025 10:01:13 +0100
+Subject: [PATCH 11/16] FROMGIT: vsock/virtio: Move SKB allocation lower-bound
+ check to callers
+
+virtio_vsock_alloc_linear_skb() checks that the requested size is at
+least big enough for the packet header (VIRTIO_VSOCK_SKB_HEADROOM).
+
+Of the three callers of virtio_vsock_alloc_linear_skb(), only
+vhost_vsock_alloc_skb() can potentially pass a packet smaller than the
+header size and, as it already has a check against the maximum packet
+size, extend its bounds checking to consider the minimum packet size
+and remove the check from virtio_vsock_alloc_linear_skb().
+
+Reviewed-by: Stefano Garzarella <sgarzare@redhat.com>
+Signed-off-by: Will Deacon <will@kernel.org>
+Message-Id: <20250717090116.11987-7-will@kernel.org>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+(cherry picked from commit 1b21842062ebff3ee56ddde87b204391c8786705
+ git://git.kernel.org/pub/scm/linux/kernel/git/mst/vhost.git vhost)
+Bug: 421244320
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I496896bd59f57375f7ba954161c3f0f77e62619b
+---
+ drivers/vhost/vsock.c        | 3 ++-
+ include/linux/virtio_vsock.h | 3 ---
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/vhost/vsock.c b/drivers/vhost/vsock.c
+index 06154044818e..93375980ecba 100644
+--- a/drivers/vhost/vsock.c
++++ b/drivers/vhost/vsock.c
+@@ -344,7 +344,8 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
+ 
+ 	len = iov_length(vq->iov, out);
+ 
+-	if (len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE + VIRTIO_VSOCK_SKB_HEADROOM)
++	if (len < VIRTIO_VSOCK_SKB_HEADROOM ||
++	    len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE + VIRTIO_VSOCK_SKB_HEADROOM)
+ 		return NULL;
+ 
+ 	/* len contains both payload and hdr */
+diff --git a/include/linux/virtio_vsock.h b/include/linux/virtio_vsock.h
+index ee9575f57c4f..4be5d81a91e3 100644
+--- a/include/linux/virtio_vsock.h
++++ b/include/linux/virtio_vsock.h
+@@ -57,9 +57,6 @@ virtio_vsock_alloc_linear_skb(unsigned int size, gfp_t mask)
+ {
+ 	struct sk_buff *skb;
+ 
+-	if (size < VIRTIO_VSOCK_SKB_HEADROOM)
+-		return NULL;
+-
+ 	skb = alloc_skb(size, mask);
+ 	if (!skb)
+ 		return NULL;
+-- 
+2.47.3
+

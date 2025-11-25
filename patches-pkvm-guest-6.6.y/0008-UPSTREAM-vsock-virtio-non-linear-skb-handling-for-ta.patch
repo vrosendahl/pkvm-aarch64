@@ -1,0 +1,87 @@
+From 721e72d28fa1d9ce7dbcd1e9fcf5b4b94cfb875b Mon Sep 17 00:00:00 2001
+From: Arseniy Krasnov <avkrasnov@salutedevices.com>
+Date: Sat, 16 Sep 2023 16:09:17 +0300
+Subject: [PATCH 08/16] UPSTREAM: vsock/virtio: non-linear skb handling for tap
+
+For tap device new skb is created and data from the current skb is
+copied to it. This adds copying data from non-linear skb to new
+the skb.
+
+Signed-off-by: Arseniy Krasnov <avkrasnov@salutedevices.com>
+Reviewed-by: Stefano Garzarella <sgarzare@redhat.com>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Paolo Abeni <pabeni@redhat.com>
+(cherry picked from commit 4b0bf10eb077cb43c09746251ef3608d62c45667)
+Bug: 421244320
+Signed-off-by: Will Deacon <willdeacon@google.com>
+Change-Id: I7f184148aa8a91032c65ef61326ca7f513f157a3
+---
+ net/vmw_vsock/virtio_transport_common.c | 31 ++++++++++++++++++++++---
+ 1 file changed, 28 insertions(+), 3 deletions(-)
+
+diff --git a/net/vmw_vsock/virtio_transport_common.c b/net/vmw_vsock/virtio_transport_common.c
+index 73896afd04e0..7f76c301aa07 100644
+--- a/net/vmw_vsock/virtio_transport_common.c
++++ b/net/vmw_vsock/virtio_transport_common.c
+@@ -111,6 +111,27 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
+ 	return NULL;
+ }
+ 
++static void virtio_transport_copy_nonlinear_skb(const struct sk_buff *skb,
++						void *dst,
++						size_t len)
++{
++	struct iov_iter iov_iter = { 0 };
++	struct kvec kvec;
++	size_t to_copy;
++
++	kvec.iov_base = dst;
++	kvec.iov_len = len;
++
++	iov_iter.iter_type = ITER_KVEC;
++	iov_iter.kvec = &kvec;
++	iov_iter.nr_segs = 1;
++
++	to_copy = min_t(size_t, len, skb->len);
++
++	skb_copy_datagram_iter(skb, VIRTIO_VSOCK_SKB_CB(skb)->offset,
++			       &iov_iter, to_copy);
++}
++
+ /* Packet capture */
+ static struct sk_buff *virtio_transport_build_skb(void *opaque)
+ {
+@@ -119,7 +140,6 @@ static struct sk_buff *virtio_transport_build_skb(void *opaque)
+ 	struct af_vsockmon_hdr *hdr;
+ 	struct sk_buff *skb;
+ 	size_t payload_len;
+-	void *payload_buf;
+ 
+ 	/* A packet could be split to fit the RX buffer, so we can retrieve
+ 	 * the payload length from the header and the buffer pointer taking
+@@ -127,7 +147,6 @@ static struct sk_buff *virtio_transport_build_skb(void *opaque)
+ 	 */
+ 	pkt_hdr = virtio_vsock_hdr(pkt);
+ 	payload_len = pkt->len;
+-	payload_buf = pkt->data;
+ 
+ 	skb = alloc_skb(sizeof(*hdr) + sizeof(*pkt_hdr) + payload_len,
+ 			GFP_ATOMIC);
+@@ -170,7 +189,13 @@ static struct sk_buff *virtio_transport_build_skb(void *opaque)
+ 	skb_put_data(skb, pkt_hdr, sizeof(*pkt_hdr));
+ 
+ 	if (payload_len) {
+-		skb_put_data(skb, payload_buf, payload_len);
++		if (skb_is_nonlinear(pkt)) {
++			void *data = skb_put(skb, payload_len);
++
++			virtio_transport_copy_nonlinear_skb(pkt, data, payload_len);
++		} else {
++			skb_put_data(skb, pkt->data, payload_len);
++		}
+ 	}
+ 
+ 	return skb;
+-- 
+2.47.3
+
