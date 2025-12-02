@@ -164,7 +164,7 @@ do_sysroot()
 		return;
 	fi
 
-	sudo tar -C $UBUNTUTEMPLATE -cf - ./|tar -C $CHROOTDIR -xf -
+	sudo tar -C $UBUNTUTEMPLATE --numeric-owner -cf - ./|tar -C $CHROOTDIR --numeric-owner -xf -
 	cd $CHROOTDIR
 	sudo mount --bind /dev $CHROOTDIR/dev
 	sudo mount -t proc none $CHROOTDIR/proc

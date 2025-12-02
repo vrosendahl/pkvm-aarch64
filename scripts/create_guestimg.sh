@@ -104,7 +104,7 @@ sync
 echo "Copying ubuntu from template.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
-sudo tar -C $UBUNTUTEMPLATE -cf - ./|tar -C tmp -xf -
+sudo tar -C $UBUNTUTEMPLATE --numeric-owner -cf - ./|tar -C tmp --numeric-owner -xf -
 cp $QEMU_USER tmp/usr/bin
 
 echo "Installing packages.."
