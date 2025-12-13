@@ -1,6 +1,7 @@
 include core/vars.mk
 
 DIRS := tools qemu-user host-kernel ubuntu-template target-crosvm hostimage guest-kernel guestimage
+TMPDIR := $(shell mktemp -d -u)
 
 all: $(DIRS)
 
@@ -70,6 +71,14 @@ pkvm-debug-tools-clean:
 host-initramfs:
 	$(MAKE) -C pkvm-debug-tools initramfs KERNEL_DIR=$(HOST_KERNEL_DIR) UBUNTU_DIR=$(BASE_DIR)/oss/ubuntu-template
 	$(MAKE) -C pkvm-debug-tools install OUT_IMAGE=$(BASE_DIR)/images/host/initramfs.gz
+
+host-modules-install:
+	@mkdir $(TMPDIR)
+	@sudo ./scripts/qmount.py ./images/host/ubuntuhost.qcow2 $(TMPDIR)
+	@sudo make -C $(HOST_KERNEL_DIR)  INSTALL_MOD_PATH=$(TMPDIR) modules_install
+	@sync
+	@sudo ./scripts/qumount.py $(TMPDIR)
+	@rm -r $(TMPDIR)
 
 ubuntu-template:
 	@./scripts/ubuntu-template.sh

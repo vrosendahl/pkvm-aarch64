@@ -1,7 +1,7 @@
-ROGNAME := hyp
+PROGNAME := hyp
 
 PROG := $(OBJDIR)/$(PLATFORM)/$(PROGNAME)
-LIBNAME := lib$(PLATFORM).a
+
 QEMU := qemu-system-aarch64
 QEMU_DTFILE := qemu_devtree
 
@@ -14,18 +14,18 @@ PVMFW_ADDRESS := 0x40001000
 INITRAMFS := $(HOST_IMAGE_DIR)/initramfs.gz
 INITRAMFS_ADDR := 0x7f000000
 
+#amount of memory allocated for sharing between guests
+G2G_SHARE_SIZE := 0x2000000
+
 KERNEL_PKVM_PARAMS := kvm-arm.mode=protected kvm-arm.protected_modules=pkvm-dbg-tools
 
 VMLINUX := $(KERNEL_DIR)/vmlinux
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
-#DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
 DRIVE := -drive file=$(IMAGE),if=none,format=qcow2,id=hd0 -device virtio-blk-device,drive=hd0
 BOOTIMG := $(DRIVE)
 USB := -device qemu-xhci -device usb-kbd -device usb-tablet
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
-COMP_IMG ?= $(OBJDIR)/$(PLATFORM)/hyp-loader
-USE_COMP_IMG ?= 0
 
 KERNEL_OPTS :=  $(KERNEL_PKVM_PARAMS) root=/dev/vda1 console=ttyAMA0 mem=8G nokaslr loglevel=8 rw
 
@@ -38,29 +38,15 @@ QEMUDEBUGOPTS := guest_errors,unimp,mmu
 else
 QEMUDEBUGOPTS := guest_errors,unimp
 endif
+
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
-
-LINK := -T ld.out -Ttext=0xC0001000
-LDFLAGS := $(LDFLAGS) $(LINK)
-
-AS_SOURCES := reset.S
-C_SOURCES := host_platform.c
-
-ifeq ($(USE_COMP_IMG),1)
-HYP_IMAGE := -device loader,file=$(COMP_IMG).bin,addr=0xC0080000,force-raw=true
-else
-HYP_IMAGE := -device loader,file=$(PROG).bin,addr=0xC0000000,force-raw=true
-endif
-
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
 	    -machine virt,virtualization=on,secure=off,gic-version=3 \
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 8G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
-ifneq (,$(filter 1, $(USE_KIC) $(USE_INITRAMFS)))
+ifneq (,$(filter 1, $(USE_KIC) $(USE_INITRAMFS) $(USE_G2GSHARE)))
 EXTRAOPTS :=  -dtb $(QEMU_DTFILE).dtb
-TMPFILE := $(shell mktemp)
-
 endif
 
 ifeq ($(USE_KIC),1)
@@ -106,6 +92,9 @@ ifeq ($(USE_INITRAMFS),1)
 else
 		@echo Dont use initramfs
 endif
+ifeq ($(USE_G2G_SHARE),1)
+		@echo "Initiate guest to guest share buffer "
+endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
@@ -118,14 +107,22 @@ generate-dtb:
 	@$(QEMUCMD-DTB)
 	@dtc -O dts -o $(QEMU_DTFILE).dts -I dtb $(QEMU_DTFILE).dtb
 ifeq ($(USE_KIC),1)
-	@cp $(QEMU_DTFILE).dts $(TMPFILE)
-	$(CURDIR)/fix-qemu-dts.py -i $(TMPFILE) -o $(QEMU_DTFILE).dts  -K \
-	-a $(PVMFW_ADDRESS) -s $(shell stat -c %s $(PVMFW_LOADER))
+	@echo 	$(CURDIR)/fix-qemu-dts.py -d $(QEMU_DTFILE).dts \
+	-a $(PVMFW_ADDRESS) -s $(shell stat -c %s $(PVMFW_LOADER)) KIC
+
+	$(CURDIR)/fix-qemu-dts.py -d $(QEMU_DTFILE).dts \
+	-a $(PVMFW_ADDRESS) -s $(shell stat -c %s $(PVMFW_LOADER)) KIC
 endif
 ifeq ($(USE_INITRAMFS),1)
-	@cp $(QEMU_DTFILE).dts $(TMPFILE)
-	@$(CURDIR)/fix-qemu-dts.py -i $(TMPFILE) -o $(QEMU_DTFILE).dts  -I \
-	-a $(INITRAMFS_ADDR) -s $(shell stat -c %s $(INITRAMFS))
+	@echo 	@$(CURDIR)/fix-qemu-dts.py -d $(QEMU_DTFILE).dts \
+	-a $(INITRAMFS_ADDR) -s $(shell stat -c %s $(INITRAMFS)) INITRD
+
+	@$(CURDIR)/fix-qemu-dts.py -d $(QEMU_DTFILE).dts \
+	-a $(INITRAMFS_ADDR) -s $(shell stat -c %s $(INITRAMFS)) INITRD
+endif
+ifeq ($(USE_G2G_SHARE),1)
+	@$(CURDIR)/fix-qemu-dts.py -d $(QEMU_DTFILE).dts \
+	-S $(G2G_SHARE_SIZE) G2G_SHARE
 endif
 	@dtc -I dts -o $(QEMU_DTFILE).dtb -O dtb $(QEMU_DTFILE).dts
 

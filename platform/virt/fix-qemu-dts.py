@@ -3,70 +3,96 @@
 import getopt
 import sys
 from io import StringIO
-PAGE_SIZE =  4096
 
-def kic_defs(size):
+
+PAGE_SIZE =  4096
+KIC_DTSI = "kic.dtsi"
+G2G_DTSI = "g2g.dtsi"
+INITRD_DTSI = "initrd.dtsi"
+
+def kic_defs(addr, size):
     out = StringIO()
     print("""
+    / {{
         reserved-memory  {{
-                #address-cells = <0x2>;
-                #size-cells = <0x2>;
-                ranges;
-                reserved: pkvm_loader@0 {{
-                        no-map;
-                        compatible = "linux,pkvm-guest-firmware-memory";
-                        reg = <0x0 0x{:x} 0x0 0x{:x}>;
-                }};
+            #address-cells = <0x2>;
+            #size-cells = <0x2>;
+            ranges;
+            pkvmfw@{:x} {{
+                no-map;
+                compatible = "linux,pkvm-guest-firmware-memory";
+                reg = <0x0 0x{:x} 0x0 0x{:x}>;
+            }};
         }};
-        """.format(addr, (size + PAGE_SIZE -1) & ~(PAGE_SIZE -1)), file = out)
+    }};
+    """.format(addr, addr, (size + PAGE_SIZE -1) & ~(PAGE_SIZE -1)), file = out)
 
     return out.getvalue()
 
-def ini_defs(addr, size):
+def g2g_defs(size):
     out = StringIO()
     print("""
-          \tlinux,initrd-start = <0x{:x}>;
-          \tlinux,initrd-end = <0x{:x}>;
-          """.format(addr, addr + size), file = out)
+    / {{
+        reserved-memory  {{
+            #address-cells = <0x2>;
+            #size-cells = <0x2>;
+            ranges;
+            g2g_share {{
+                no-map;
+                compatible = "linux,pkvm-guest-shared-memory";
+                size = <0 0x{:x}>;
+                alignment = <0 0x1000>;
+                buffers = <1 2 3 4>;
+            }};
+        }};
+    }};
+    """.format((size + PAGE_SIZE -1) & ~(PAGE_SIZE -1)), file = out)
+    return out.getvalue()
+
+
+def initrd_defs(addr, size):
+    out = StringIO()
+    print("""
+    / {{
+        chosen {{
+            linux,initrd-start = <0x{:x}>;
+            linux,initrd-end = <0x{:x}>;
+        }};
+    }};
+    """.format(addr, addr + size), file = out)
     return out.getvalue();
 
 argv = sys.argv[1:]
 
 try:
-    opts, args = getopt.getopt(argv, "KIi:o:s:a:")
-
+    opts, args = getopt.gnu_getopt(argv, "d:s:S:a:")
 except:
     print("Error")
-kic = False
-initfs = False
+    sys.exit()
+
 for opt, arg in opts:
-    if opt in ['-K']:
-        kic = True
-    elif opt in ['-I']:
-        initfs  = True
-    elif opt in ['-i']:
-        indts = arg
-    elif opt in ['-o']:
-        outdts = arg
+    if opt in ['-d']:
+        dtsfile = arg
     elif opt in ['-s']:
         size = int(arg)
+    elif opt in ['-S']:
+        size = int(arg,16)
     elif opt in ['-a']:
         addr = int(arg,16)
 
-with open(outdts, 'w') as outfile:
-    with open(indts, 'r') as infile:
-        # Read each line in the file
-        for line in infile:
-            if (kic):
-                if (line.find("virtio_mmio@a000000") >= 0):
-                    outfile.write(kic_defs(size));
-                outfile.write(line);
-
-            if (initfs):
-                outfile.write(line);
-                if (line.find("chosen {") >= 0 ):
-                    outfile.write(ini_defs(addr, size))
-
-infile.close()
-
+if (args[0] == "KIC"):
+    with open(KIC_DTSI,'w') as f:
+        f.write(kic_defs(addr, size))
+    with open(dtsfile,'a') as f:
+        f.write('/include/ "{}"\n'.format(KIC_DTSI))
+elif (args[0] == "G2G_SHARE"):
+    with open(G2G_DTSI,'w') as f:
+        f.write(g2g_defs(size))
+    with open(dtsfile,'a') as f:
+        f.write('/include/ "{}"\n'.format(G2G_DTSI))
+elif (args[0] == "INITRD"):
+    with open(INITRD_DTSI,'w') as f:
+        f.write(initrd_defs(addr, size))
+    with open(dtsfile,'a') as f:
+        f.write('/include/ "{}"\n'.format(INITRD_DTSI))
 
