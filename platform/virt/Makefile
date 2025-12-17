@@ -16,8 +16,13 @@ INITRAMFS_ADDR := 0x7f000000
 
 #amount of memory allocated for sharing between guests
 G2G_SHARE_SIZE := 0x2000000
+PKVM_MODULES := pkvm-dbg-tools
+KERNEL_PKVM_PARAMS := kvm-arm.mode=protected
 
-KERNEL_PKVM_PARAMS := kvm-arm.mode=protected kvm-arm.protected_modules=pkvm-dbg-tools
+ifeq ($(USE_INITRAMFS),1)
+# pkvm modules must be in initramfs
+KERNEL_PKVM_PARAMS += kvm-arm.protected_modules=$(PKVM_MODULES)
+endif
 
 VMLINUX := $(KERNEL_DIR)/vmlinux
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
